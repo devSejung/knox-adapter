@@ -1,0 +1,86 @@
+{
+  "gateway": {
+    "bind": "loopback",
+    "port": 19121,
+    "controlUi": {
+      "enabled": true,
+      "basePath": "/controlui",
+      "docsUrl": "https://intranet.company.example/platformclaw/help",
+      "announcementTitle": "Scheduled maintenance",
+      "announcementBody": "PlatformClaw will be read-only on April 12 from 22:00 to 23:00 KST.",
+      "announcementLinkLabel": "View notice",
+      "announcementLinkUrl": "https://intranet.company.example/notices/platformclaw-maintenance",
+      "allowedOrigins": [
+        "https://soc.company.example",
+        "https://admin-soc.company.example"
+      ]
+    },
+    "auth": {
+      "mode": "password",
+      "password": "CHANGE_ME_ADMIN_PASSWORD",
+      "rateLimit": {
+        "maxAttempts": 10,
+        "windowMs": 60000,
+        "lockoutMs": 300000,
+        "exemptLoopback": true
+      }
+    },
+    "http": {
+      "endpoints": {
+        "responses": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai-codex/gpt-5.4"
+      },
+      "workspace": "~/.openclaw/workspace-main",
+      "thinkingDefault": "medium",
+      "heartbeat": {
+        "every": "0m"
+      }
+    },
+    "list": [
+      {
+        "id": "eon",
+        "default": true,
+        "workspace": "~/.openclaw/workspace-eon",
+        "identity": {
+          "name": "Eon"
+        }
+      },
+      {
+        "id": "minji",
+        "workspace": "~/.openclaw/workspace-minji",
+        "identity": {
+          "name": "민지"
+        }
+      },
+      {
+        "id": "jiwon",
+        "workspace": "~/.openclaw/workspace-jiwon",
+        "identity": {
+          "name": "지원"
+        }
+      }
+    ]
+  },
+  "cron": {
+    "enabled": false
+  },
+  "plugins": {
+    "entries": {
+      "openai": {
+        "enabled": true
+      }
+    }
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.4.6",
+    "lastTouchedAt": "2026-04-07T19:41:57.929Z"
+  }
+}

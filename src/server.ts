@@ -1,88 +1,84 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { verifyProxyRequest } from "./auth.js";
 import { loadConfig } from "./config.js";
-import type { KnoxInboundMessage, PlatformClawRouting } from "./knox-types.js";
+import { Logger } from "./logger.js";
+import { ProxyOutboundClient } from "./outbound-client.js";
 import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
+import { knoxInboundSchema } from "./schemas.js";
+import { KnoxAdapterService } from "./service.js";
+import { AdapterStore } from "./store.js";
 
 const config = loadConfig();
-const gatewayClient = new PlatformClawGatewayClient({
-  gatewayUrl: config.PLATFORMCLAW_GATEWAY_URL,
-  token: config.PLATFORMCLAW_GATEWAY_TOKEN,
-});
+const logger = new Logger(config);
+const store = new AdapterStore(config.DATABASE_PATH);
+const gatewayClient = new PlatformClawGatewayClient(config, logger);
+const outboundClient = new ProxyOutboundClient(config, logger);
+const service = new KnoxAdapterService(config, logger, store, gatewayClient, outboundClient);
 
-function sendJson(res: import("node:http").ServerResponse, status: number, body: unknown) {
+function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
 }
 
-function buildSessionKey(agentId: string, message: KnoxInboundMessage): string {
-  if (config.DEFAULT_SESSION_MODE === "shared_main") {
-    return `agent:${agentId}:main`;
+async function readRawBody(req: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
-  return `agent:${agentId}:knox:dm:${message.sender.knoxUserId}`;
-}
-
-function mapInboundToRouting(message: KnoxInboundMessage): PlatformClawRouting {
-  const employeeId = message.sender.employeeId?.trim() || message.sender.knoxUserId.trim();
-  const agentId = employeeId;
-  const sessionKey = buildSessionKey(agentId, message);
-  return { employeeId, agentId, sessionKey };
-}
-
-function isKnoxInboundMessage(value: unknown): value is KnoxInboundMessage {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const rec = value as Record<string, unknown>;
-  return (
-    typeof rec.eventId === "string" &&
-    typeof rec.messageId === "string" &&
-    typeof rec.occurredAt === "string" &&
-    typeof rec.text === "string" &&
-    !!rec.sender &&
-    typeof rec.sender === "object" &&
-    typeof (rec.sender as Record<string, unknown>).knoxUserId === "string" &&
-    !!rec.conversation &&
-    typeof rec.conversation === "object" &&
-    typeof (rec.conversation as Record<string, unknown>).conversationId === "string" &&
-    typeof (rec.conversation as Record<string, unknown>).type === "string"
-  );
+  return Buffer.concat(chunks);
 }
 
 const server = createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/healthz") {
-    sendJson(res, 200, {
-      ok: true,
-      service: "platformclaw-knox-adapter",
-      gatewayUrl: config.PLATFORMCLAW_GATEWAY_URL,
-    });
+    sendJson(res, 200, service.health());
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/readyz") {
+    const ready = service.readiness();
+    sendJson(res, ready.ok ? 200 : 503, ready);
     return;
   }
 
   if (req.method === "POST" && req.url === "/api/v1/platformclaw/knox/inbound") {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const rawBody = await readRawBody(req);
+    const verified = verifyProxyRequest({
+      config,
+      headers: req.headers,
+      rawBody,
+    });
+    if (!verified.ok) {
+      sendJson(res, 401, { ok: false, error: verified.code, message: verified.message });
+      return;
     }
+
     let parsed: unknown;
     try {
-      parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      parsed = JSON.parse(rawBody.toString("utf8"));
     } catch {
       sendJson(res, 400, { ok: false, error: "invalid_json" });
       return;
     }
-    if (!isKnoxInboundMessage(parsed)) {
-      sendJson(res, 400, { ok: false, error: "invalid_payload" });
+
+    const inbound = knoxInboundSchema.safeParse(parsed);
+    if (!inbound.success) {
+      sendJson(res, 400, {
+        ok: false,
+        error: "invalid_payload",
+        details: inbound.error.flatten(),
+      });
       return;
     }
 
-    const routing = mapInboundToRouting(parsed);
-    const accepted = await gatewayClient.sendChat({ routing, inbound: parsed });
-    sendJson(res, 202, {
+    const accepted = await service.acceptInbound(inbound.data);
+    sendJson(res, accepted.duplicate ? 200 : 202, {
       ok: true,
-      accepted: true,
-      runId: accepted.runId,
-      routing,
+      duplicate: accepted.duplicate,
+      messageId: accepted.record.messageId,
+      agentId: accepted.record.agentId,
+      sessionKey: accepted.record.sessionKey,
+      status: accepted.record.status,
     });
     return;
   }
@@ -91,7 +87,22 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(config.PORT, config.HOST, () => {
-  console.log(
-    `[knox-adapter] listening on http://${config.HOST}:${config.PORT} gateway=${config.PLATFORMCLAW_GATEWAY_URL}`,
-  );
+  logger.info("adapter listening", {
+    host: config.HOST,
+    port: config.PORT,
+    gatewayUrl: config.PLATFORMCLAW_GATEWAY_URL,
+    dbPath: config.DATABASE_PATH,
+  });
 });
+
+function shutdown(signal: string) {
+  logger.info("adapter shutting down", { signal });
+  gatewayClient.close();
+  store.close();
+  server.close(() => {
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
