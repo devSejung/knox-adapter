@@ -76,6 +76,12 @@ const configSchema = z.object({
   DEFAULT_SESSION_MODE: z.enum(["shared_main", "isolated_dm"]).default("isolated_dm"),
   ENABLE_STAGE_UPDATES: envBoolean(false),
   MAX_RETRY_ATTEMPTS: z.coerce.number().int().min(0).max(5).default(1),
+  REQUIRE_EMPLOYEE_ACTIVATION: envBoolean(false),
+  PLATFORMCLAW_EMPLOYEE_ACTIVATION_PATH: z
+    .string()
+    .trim()
+    .min(1)
+    .default(path.resolve(process.cwd(), "data", "employee-activation.json")),
 });
 
 export type AdapterConfig = z.infer<typeof configSchema>;

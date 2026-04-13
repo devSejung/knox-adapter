@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AdapterConfig } from "./config.js";
+import { isEmployeeActivated } from "./activation.js";
 import { Logger } from "./logger.js";
 import { ProxyOutboundClient } from "./outbound-client.js";
 import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
@@ -89,6 +90,34 @@ export class KnoxAdapterService {
       agentId: record.agentId,
       sessionKey: record.sessionKey,
     };
+
+    const activation = await isEmployeeActivated({
+      config: this.config,
+      employeeId: routing.employeeId,
+      agentId: routing.agentId,
+    });
+    if (!activation.ok) {
+      this.logger.warn("employee activation gate rejected inbound message", {
+        messageId: message.messageId,
+        employeeId: routing.employeeId,
+        agentId: routing.agentId,
+        reason: activation.reason,
+      });
+      this.store.updateProgress(message.messageId, {
+        status: "failed",
+        errorCode: "employee_not_activated",
+        errorMessage: activation.reason,
+      });
+      await this.deliverTerminal({
+        messageId: message.messageId,
+        runId: "activation-gate",
+        text: "PlatformClaw web login is required before Knox access can be used.",
+        status: "error",
+        errorCode: "employee_not_activated",
+        errorMessage: activation.reason,
+      });
+      return;
+    }
 
     let lastError: Error | null = null;
     let acceptedRunId: string | null = null;

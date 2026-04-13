@@ -276,6 +276,39 @@ Proxy는 세션 정책을 힌트로 전달할 수 있다.
 
 - `x-platformclaw-timestamp`
 - `x-platformclaw-signature`
+
+### `x-platformclaw-signature` 계산 방법
+
+서명 계산 기준은 아래와 같다.
+
+```text
+payload = "<x-platformclaw-timestamp>.<rawBody>"
+signature = HMAC_SHA256(PROXY_SHARED_SECRET, payload)
+header = "sha256=" + hex(signature)
+```
+
+중요:
+
+- `rawBody`는 실제 HTTP로 보낼 JSON 문자열 그대로여야 한다.
+- JSON을 다시 정렬하거나 pretty-print하면 서명이 달라질 수 있다.
+- `x-platformclaw-timestamp`는 밀리초 epoch 문자열을 권장한다.
+
+Node.js 예시:
+
+```js
+import crypto from "node:crypto";
+
+const rawBody = JSON.stringify(body);
+const timestamp = Date.now().toString();
+const payload = `${timestamp}.${rawBody}`;
+const signature = crypto
+  .createHmac("sha256", process.env.PROXY_SHARED_SECRET)
+  .update(payload)
+  .digest("hex");
+
+headers["x-platformclaw-timestamp"] = timestamp;
+headers["x-platformclaw-signature"] = `sha256=${signature}`;
+```
 - `PROXY_SHARED_SECRET`
 
 ### 8.2 Adapter -> Proxy
