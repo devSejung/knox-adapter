@@ -13,11 +13,45 @@ export class ProxyOutboundClient {
     private readonly logger: Logger,
   ) {}
 
+  async sendProgress(params: {
+    record: MessageRecord;
+    runId: string;
+    text: string;
+  }): Promise<ProxyOutboundResult> {
+    return await this.send({
+      record: params.record,
+      runId: params.runId,
+      text: params.text,
+      status: "progress",
+      final: false,
+    });
+  }
+
   async sendFinal(params: {
     record: MessageRecord;
     runId: string;
     text: string;
     status: "final" | "error" | "timeout";
+    errorCode?: string;
+    errorMessage?: string;
+  }): Promise<ProxyOutboundResult> {
+    return await this.send({
+      record: params.record,
+      runId: params.runId,
+      text: params.text,
+      status: params.status,
+      final: true,
+      errorCode: params.errorCode,
+      errorMessage: params.errorMessage,
+    });
+  }
+
+  private async send(params: {
+    record: MessageRecord;
+    runId: string;
+    text: string;
+    status: "progress" | "final" | "error" | "timeout";
+    final: boolean;
     errorCode?: string;
     errorMessage?: string;
   }): Promise<ProxyOutboundResult> {
@@ -34,7 +68,7 @@ export class ProxyOutboundClient {
       msgType: "text",
       status: params.status,
       text: params.text,
-      final: true,
+      final: params.final,
       errorCode: params.errorCode,
       errorMessage: params.errorMessage,
     };

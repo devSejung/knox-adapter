@@ -154,8 +154,8 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
 | `chatroomId` | Knox 발신 대상 대화방 ID |
 | `chatMsgId` | Knox 발신 메시지 ID |
 | `msgType` | 현재는 `text` |
-| `status` | `final`, `error`, `timeout` |
-| `text` | Knox로 보낼 최종 텍스트 |
+| `status` | `progress`, `final`, `error`, `timeout` |
+| `text` | Knox로 보낼 텍스트 |
 | `final` | 최종 메시지 여부 |
 
 예시:
@@ -175,6 +175,26 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
   "status": "final",
   "text": "회의 내용을 정리했습니다.",
   "final": true
+}
+```
+
+진행 상태 예시:
+
+```json
+{
+  "messageId": "msg_20260409_000001",
+  "conversationId": "conv_12345",
+  "threadId": null,
+  "agentId": "seungon.jung",
+  "sessionKey": "agent:seungon.jung:knox:dm:u_12345",
+  "runId": "queue-msg_20260409_000002",
+  "requestId": "req_abc124",
+  "chatroomId": "conv_12345",
+  "chatMsgId": "knox-out-12346",
+  "msgType": "text",
+  "status": "progress",
+  "text": "앞선 요청 1건 처리 후 이어서 진행합니다.",
+  "final": false
 }
 ```
 
@@ -335,10 +355,13 @@ Proxy 개발자 기준으로 중요한 것은 아래다.
 - 중복 메시지 처리
 - 기존 상태 재사용
 
-3. Adapter outbound `status=final`
+3. Adapter outbound `status=progress`
+- queue 대기 또는 context compaction 같은 진행 상태 안내
+
+4. Adapter outbound `status=final`
 - Knox에 정상 발신
 
-4. Adapter outbound `status=error` 또는 `timeout`
+5. Adapter outbound `status=error` 또는 `timeout`
 - Knox에 실패 안내를 보낼지, 운영 로그만 남길지 정책 결정 필요
 
 권장:

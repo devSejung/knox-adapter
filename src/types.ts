@@ -4,6 +4,7 @@ export type AdapterStatus =
   | "received"
   | "duplicate"
   | "routing_resolved"
+  | "queued"
   | "gateway_accepted"
   | "running"
   | "final_received"
@@ -61,6 +62,7 @@ export type MessageRecord = {
 
 export type GatewayChatAccepted = {
   runId: string;
+  transport: "websocket" | "http-responses";
 };
 
 export type GatewayChatFinal = {
@@ -80,6 +82,17 @@ export type GatewayChatFailure = {
 
 export type GatewayChatTerminal = GatewayChatFinal | GatewayChatFailure;
 
+export type GatewayCompactionEvent = {
+  runId: string | null;
+  sessionKey: string;
+  phase: "start" | "end";
+  completed: boolean;
+  willRetry: boolean;
+  tokensBefore?: number;
+  tokensAfter?: number;
+  trigger?: string;
+};
+
 export type ProxyOutboundPayload = {
   messageId: string;
   conversationId: string;
@@ -91,7 +104,7 @@ export type ProxyOutboundPayload = {
   chatroomId: string;
   chatMsgId: string;
   msgType: "text";
-  status: "final" | "error" | "timeout";
+  status: "progress" | "final" | "error" | "timeout";
   text: string;
   final: boolean;
   errorCode?: string;

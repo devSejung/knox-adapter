@@ -6,9 +6,64 @@ import { ProxyOutboundClient } from "./outbound-client.js";
 import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
 import { resolveRouting } from "./routing.js";
 import { AdapterStore } from "./store.js";
-import type { KnoxInboundPayload, MessageRecord } from "./types.js";
+import type { GatewayCompactionEvent, KnoxInboundPayload, MessageRecord } from "./types.js";
+
+function formatTokenCount(value: number) {
+  return value.toLocaleString("en-US");
+}
+
+function formatCompactionReduction(params: { tokensBefore?: number; tokensAfter?: number }) {
+  const { tokensBefore, tokensAfter } = params;
+  if (
+    typeof tokensBefore !== "number" ||
+    !Number.isFinite(tokensBefore) ||
+    tokensBefore <= 0 ||
+    typeof tokensAfter !== "number" ||
+    !Number.isFinite(tokensAfter) ||
+    tokensAfter < 0
+  ) {
+    return null;
+  }
+  const clampedAfter = Math.min(tokensAfter, tokensBefore);
+  const reducedRatio = Math.max(0, Math.min(1, (tokensBefore - clampedAfter) / tokensBefore));
+  return {
+    reducedPercent: Math.round(reducedRatio * 100),
+    beforeLabel: formatTokenCount(tokensBefore),
+    afterLabel: formatTokenCount(clampedAfter),
+  };
+}
+
+function buildCompactionStartText() {
+  return "Context 압축 중입니다. 응답을 이어가기 위해 대화 내용을 정리하고 있습니다.";
+}
+
+function buildCompactionCompleteText(event: GatewayCompactionEvent) {
+  const reduction = formatCompactionReduction({
+    tokensBefore: event.tokensBefore,
+    tokensAfter: event.tokensAfter,
+  });
+  if (!reduction) {
+    return "Context 압축이 완료되었습니다. 응답을 이어갑니다.";
+  }
+  return `Context 압축이 완료되었습니다. 약 ${reduction.reducedPercent}% 줄였습니다 (${reduction.beforeLabel} -> ${reduction.afterLabel} tokens). 응답을 이어갑니다.`;
+}
+
+function buildQueuedText(queueDepthAhead: number) {
+  if (!Number.isFinite(queueDepthAhead) || queueDepthAhead <= 0) {
+    return "앞선 요청 처리 후 이어서 진행합니다.";
+  }
+  return `앞선 요청 ${queueDepthAhead}건 처리 후 이어서 진행합니다.`;
+}
 
 export class KnoxAdapterService {
+  private readonly sessionQueues = new Map<
+    string,
+    {
+      running: boolean;
+      items: KnoxInboundPayload[];
+    }
+  >();
+
   constructor(
     private readonly config: AdapterConfig,
     private readonly logger: Logger,
@@ -69,14 +124,80 @@ export class KnoxAdapterService {
       chatroomId: message.conversation.conversationId,
     });
 
-    void this.process(message).catch((error) => {
-      this.logger.error("inbound processing failed", {
-        messageId: message.messageId,
+    this.enqueueBySession(routing.sessionKey, message);
+
+    return { duplicate: false, record: this.store.getByMessageId(message.messageId)! };
+  }
+
+  private enqueueBySession(sessionKey: string, message: KnoxInboundPayload) {
+    let queue = this.sessionQueues.get(sessionKey);
+    if (!queue) {
+      queue = { running: false, items: [] };
+      this.sessionQueues.set(sessionKey, queue);
+    }
+    const queueDepthAhead = queue.items.length + (queue.running ? 1 : 0);
+    const isQueuedBehindAnother = queueDepthAhead > 0;
+    queue.items.push(message);
+    if (isQueuedBehindAnother) {
+      this.store.updateProgress(message.messageId, {
+        status: "queued",
+      });
+      void this.notifyQueued(message.messageId, queueDepthAhead).catch((error) => {
+        this.logger.warn("queued stage update delivery failed", {
+          messageId: message.messageId,
+          sessionKey,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    void this.pumpSessionQueue(sessionKey).catch((error) => {
+      this.logger.error("session queue pump failed", {
+        sessionKey,
         error: error instanceof Error ? error.message : String(error),
       });
     });
+  }
 
-    return { duplicate: false, record: this.store.getByMessageId(message.messageId)! };
+  private async pumpSessionQueue(sessionKey: string) {
+    const queue = this.sessionQueues.get(sessionKey);
+    if (!queue || queue.running) {
+      return;
+    }
+    queue.running = true;
+    try {
+      while (queue.items.length > 0) {
+        const next = queue.items.shift();
+        if (!next) {
+          continue;
+        }
+        try {
+          await this.process(next);
+        } catch (error) {
+          this.logger.error("inbound processing failed", {
+            messageId: next.messageId,
+            sessionKey,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } finally {
+      queue.running = false;
+      if (queue.items.length === 0) {
+        this.sessionQueues.delete(sessionKey);
+      }
+    }
+  }
+
+  private async notifyQueued(messageId: string, queueDepthAhead: number) {
+    const record = this.store.getByMessageId(messageId);
+    if (!record) {
+      return;
+    }
+    await this.outbound.sendProgress({
+      record,
+      runId: `queue-${messageId}`,
+      text: buildQueuedText(queueDepthAhead),
+    });
   }
 
   private async process(message: KnoxInboundPayload) {
@@ -121,6 +242,7 @@ export class KnoxAdapterService {
 
     let lastError: Error | null = null;
     let acceptedRunId: string | null = null;
+    let acceptedTransport: "websocket" | "http-responses" | null = null;
     let terminalResult:
       | {
           runId: string;
@@ -130,53 +252,89 @@ export class KnoxAdapterService {
           errorMessage?: string;
         }
       | null = null;
+    const compactionState = {
+      activeNotified: false,
+      completedNotified: false,
+    };
+    const unsubscribeCompaction = this.config.ENABLE_STAGE_UPDATES
+      ? this.gateway.onCompactionEvent((event) => {
+          if (event.sessionKey !== routing.sessionKey) {
+            return;
+          }
+          if (
+            acceptedTransport === "websocket" &&
+            acceptedRunId &&
+            event.runId &&
+            event.runId !== acceptedRunId
+          ) {
+            return;
+          }
+          void this.handleCompactionProgress({
+            messageId: message.messageId,
+            runId: acceptedRunId ?? event.runId ?? "compaction-stage",
+            event,
+            state: compactionState,
+          }).catch((error) => {
+            this.logger.warn("compaction stage update delivery failed", {
+              messageId: message.messageId,
+              sessionKey: routing.sessionKey,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+        })
+      : null;
 
-    for (let attempt = 0; attempt <= this.config.MAX_RETRY_ATTEMPTS; attempt += 1) {
-      try {
-        const accepted = await this.gateway.sendChat({ routing, inbound: message });
-        acceptedRunId = accepted.runId;
-        this.store.updateProgress(message.messageId, {
-          status: "gateway_accepted",
-          runId: accepted.runId,
-        });
-        this.store.updateProgress(message.messageId, { status: "running" });
-
-        const terminal = await this.gateway.waitForTerminal(accepted.runId, routing.sessionKey);
-        if (terminal.status === "final") {
+    try {
+      for (let attempt = 0; attempt <= this.config.MAX_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          const accepted = await this.gateway.sendChat({ routing, inbound: message });
+          acceptedRunId = accepted.runId;
+          acceptedTransport = accepted.transport;
           this.store.updateProgress(message.messageId, {
-            status: "final_received",
+            status: "gateway_accepted",
+            runId: accepted.runId,
+          });
+          this.store.updateProgress(message.messageId, { status: "running" });
+
+          const terminal = await this.gateway.waitForTerminal(accepted.runId, routing.sessionKey);
+          if (terminal.status === "final") {
+            this.store.updateProgress(message.messageId, {
+              status: "final_received",
+              runId: terminal.runId,
+            });
+            terminalResult = {
+              runId: terminal.runId,
+              text: terminal.text,
+              status: "final",
+            };
+            break;
+          }
+
+          this.store.updateProgress(message.messageId, {
+            status: terminal.status === "timeout" ? "timed_out" : "failed",
             runId: terminal.runId,
+            errorCode: terminal.errorCode,
+            errorMessage: terminal.errorMessage,
           });
           terminalResult = {
             runId: terminal.runId,
-            text: terminal.text,
-            status: "final",
+            text: terminal.errorMessage,
+            status: terminal.status === "timeout" ? "timeout" : "error",
+            errorCode: terminal.errorCode,
+            errorMessage: terminal.errorMessage,
           };
           break;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          this.logger.warn("gateway processing attempt failed", {
+            attempt: attempt + 1,
+            messageId: message.messageId,
+            error: lastError.message,
+          });
         }
-
-        this.store.updateProgress(message.messageId, {
-          status: terminal.status === "timeout" ? "timed_out" : "failed",
-          runId: terminal.runId,
-          errorCode: terminal.errorCode,
-          errorMessage: terminal.errorMessage,
-        });
-        terminalResult = {
-          runId: terminal.runId,
-          text: terminal.errorMessage,
-          status: terminal.status === "timeout" ? "timeout" : "error",
-          errorCode: terminal.errorCode,
-          errorMessage: terminal.errorMessage,
-        };
-        break;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        this.logger.warn("gateway processing attempt failed", {
-          attempt: attempt + 1,
-          messageId: message.messageId,
-          error: lastError.message,
-        });
       }
+    } finally {
+      unsubscribeCompaction?.();
     }
 
     if (!terminalResult) {
@@ -216,6 +374,45 @@ export class KnoxAdapterService {
         error: outboundError instanceof Error ? outboundError.message : String(outboundError),
       });
     }
+  }
+
+  private async handleCompactionProgress(params: {
+    messageId: string;
+    runId: string;
+    event: GatewayCompactionEvent;
+    state: {
+      activeNotified: boolean;
+      completedNotified: boolean;
+    };
+  }) {
+    if (!this.config.ENABLE_STAGE_UPDATES) {
+      return;
+    }
+    const record = this.store.getByMessageId(params.messageId);
+    if (!record) {
+      return;
+    }
+    if (params.event.phase === "start") {
+      if (params.state.activeNotified) {
+        return;
+      }
+      params.state.activeNotified = true;
+      await this.outbound.sendProgress({
+        record,
+        runId: params.runId,
+        text: buildCompactionStartText(),
+      });
+      return;
+    }
+    if (!params.event.completed || params.state.completedNotified) {
+      return;
+    }
+    params.state.completedNotified = true;
+    await this.outbound.sendProgress({
+      record,
+      runId: params.runId,
+      text: buildCompactionCompleteText(params.event),
+    });
   }
 
   private async deliverTerminal(params: {

@@ -10,6 +10,7 @@ import { buildDeviceAuthPayloadV3 } from "./gateway-device-auth.js";
 import { Logger } from "./logger.js";
 import type {
   GatewayChatAccepted,
+  GatewayCompactionEvent,
   GatewayChatTerminal,
   KnoxInboundPayload,
   PlatformClawRouting,
@@ -80,6 +81,7 @@ export class PlatformClawGatewayClient {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly chatWaiters = new Map<string, ChatWaiter>();
   private readonly immediateTerminal = new Map<string, GatewayChatTerminal>();
+  private readonly compactionListeners = new Set<(event: GatewayCompactionEvent) => void>();
 
   constructor(
     private readonly config: AdapterConfig,
@@ -114,7 +116,7 @@ export class PlatformClawGatewayClient {
       })) as { runId?: unknown };
 
       const runId = typeof payload?.runId === "string" ? payload.runId : idempotencyKey;
-      return { runId };
+      return { runId, transport: "websocket" };
     } catch (error) {
       const err = asError(error);
       if (transport === "auto" && this.shouldFallbackToHttpResponses(err)) {
@@ -147,6 +149,13 @@ export class PlatformClawGatewayClient {
       }, this.config.PLATFORMCLAW_RUN_TIMEOUT_MS);
       this.chatWaiters.set(runId, { runId, sessionKey, resolve, timeout });
     });
+  }
+
+  onCompactionEvent(listener: (event: GatewayCompactionEvent) => void): () => void {
+    this.compactionListeners.add(listener);
+    return () => {
+      this.compactionListeners.delete(listener);
+    };
   }
 
   async close() {
@@ -212,6 +221,9 @@ export class PlatformClawGatewayClient {
     }
 
     const runId = randomUUID();
+    if (this.config.ENABLE_STAGE_UPDATES) {
+      await this.ensureStageChannelConnected();
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.PLATFORMCLAW_RUN_TIMEOUT_MS);
     try {
@@ -251,7 +263,7 @@ export class PlatformClawGatewayClient {
         status: "final",
         text,
       });
-      return { runId };
+      return { runId, transport: "http-responses" };
     } catch (error) {
       const err = asError(error);
       if (err.name === "AbortError") {
@@ -262,7 +274,7 @@ export class PlatformClawGatewayClient {
           errorCode: "gateway_timeout",
           errorMessage: "gateway /v1/responses timeout",
         });
-        return { runId };
+        return { runId, transport: "http-responses" };
       }
       throw err;
     } finally {
@@ -296,6 +308,16 @@ export class PlatformClawGatewayClient {
         !this.config.PLATFORMCLAW_GATEWAY_DEVICE_TOKEN &&
         this.config.PLATFORMCLAW_USE_DEVICE_IDENTITY !== true,
     );
+  }
+
+  private async ensureStageChannelConnected() {
+    try {
+      await this.ensureConnected();
+    } catch (error) {
+      this.logger.warn("stage updates unavailable: gateway event channel connection failed", {
+        error: asError(error).message,
+      });
+    }
   }
 
   private formatHttpError(status: number, parsed: unknown, raw: string) {
@@ -538,6 +560,11 @@ export class PlatformClawGatewayClient {
       return;
     }
 
+    if (frame.type === "event" && frame.event === "agent") {
+      this.handleAgentEvent(frame.payload);
+      return;
+    }
+
     if (frame.type !== "res") {
       return;
     }
@@ -607,6 +634,67 @@ export class PlatformClawGatewayClient {
               ? "gateway chat failed"
               : "gateway chat aborted",
       });
+    }
+  }
+
+  private handleAgentEvent(payload: unknown) {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+    const eventPayload = payload as Record<string, unknown>;
+    if (eventPayload.stream !== "compaction") {
+      return;
+    }
+    const sessionKey =
+      typeof eventPayload.sessionKey === "string" && eventPayload.sessionKey.trim()
+        ? eventPayload.sessionKey.trim()
+        : null;
+    if (!sessionKey) {
+      return;
+    }
+    const data = eventPayload.data;
+    if (!data || typeof data !== "object") {
+      return;
+    }
+    const dataRecord = data as Record<string, unknown>;
+    const phase = dataRecord.phase === "start" || dataRecord.phase === "end" ? dataRecord.phase : null;
+    if (!phase) {
+      return;
+    }
+    const runId =
+      typeof eventPayload.runId === "string" && eventPayload.runId.trim()
+        ? eventPayload.runId.trim()
+        : null;
+    const tokensBefore =
+      typeof dataRecord.tokensBefore === "number" && Number.isFinite(dataRecord.tokensBefore)
+        ? dataRecord.tokensBefore
+        : undefined;
+    const tokensAfter =
+      typeof dataRecord.tokensAfter === "number" && Number.isFinite(dataRecord.tokensAfter)
+        ? dataRecord.tokensAfter
+        : undefined;
+    const event: GatewayCompactionEvent = {
+      runId,
+      sessionKey,
+      phase,
+      completed: dataRecord.completed === true,
+      willRetry: dataRecord.willRetry === true,
+      ...(tokensBefore !== undefined ? { tokensBefore } : {}),
+      ...(tokensAfter !== undefined ? { tokensAfter } : {}),
+      ...(typeof dataRecord.trigger === "string" && dataRecord.trigger.trim()
+        ? { trigger: dataRecord.trigger.trim() }
+        : {}),
+    };
+    for (const listener of this.compactionListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        this.logger.warn("gateway compaction listener failed", {
+          error: asError(error).message,
+          sessionKey: event.sessionKey,
+          runId: event.runId,
+        });
+      }
     }
   }
 
