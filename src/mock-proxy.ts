@@ -6,10 +6,12 @@ type TestSendRequest = {
   employeeId?: string;
   employeeEmail?: string;
   knoxUserId?: string;
+  conversationType?: "dm" | "room";
   conversationId?: string;
   threadId?: string | null;
   preferredSessionMode?: "shared_main" | "isolated_dm";
   agentId?: string;
+  sessionKey?: string;
 };
 
 type StoredOutbound = {
@@ -64,10 +66,12 @@ function normalizeTestRequest(input: Partial<TestSendRequest>): TestSendRequest 
     employeeId,
     employeeEmail,
     knoxUserId: input.knoxUserId?.trim() || employeeId,
+    conversationType: input.conversationType ?? "dm",
     conversationId: input.conversationId?.trim() || `dm:${employeeId}`,
     threadId: input.threadId ?? null,
     preferredSessionMode: input.preferredSessionMode ?? "isolated_dm",
     agentId: input.agentId?.trim(),
+    sessionKey: input.sessionKey?.trim(),
   };
 }
 
@@ -158,13 +162,14 @@ const server = createServer(async (req, res) => {
         department: "PlatformClaw",
       },
       conversation: {
-        type: "dm" as const,
+        type: testRequest.conversationType!,
         conversationId: testRequest.conversationId!,
         threadId: testRequest.threadId,
       },
       text: testRequest.text,
       preferredSessionMode: testRequest.preferredSessionMode,
       agentId: testRequest.agentId,
+      sessionKey: testRequest.sessionKey,
     };
 
     const encodedBody = JSON.stringify(inboundPayload);

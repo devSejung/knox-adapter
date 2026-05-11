@@ -25,13 +25,14 @@ export type KnoxInboundPayload = {
     department?: string;
   };
   conversation: {
-    type: "dm";
+    type: "dm" | "room";
     conversationId: string;
     threadId?: string | null;
   };
   text: string;
   preferredSessionMode?: SessionMode;
   agentId?: string;
+  sessionKey?: string;
 };
 
 export type PlatformClawRouting = {

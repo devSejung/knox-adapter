@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { Logger } from "./logger.js";
 import { ProxyOutboundClient } from "./outbound-client.js";
 import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
+import { RoutingError } from "./routing.js";
 import { knoxInboundSchema } from "./schemas.js";
 import { KnoxAdapterService } from "./service.js";
 import { AdapterStore } from "./store.js";
@@ -71,7 +72,21 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    const accepted = await service.acceptInbound(inbound.data);
+    let accepted: Awaited<ReturnType<typeof service.acceptInbound>>;
+    try {
+      accepted = await service.acceptInbound(inbound.data);
+    } catch (error) {
+      if (error instanceof RoutingError) {
+        sendJson(res, 400, {
+          ok: false,
+          error: error.code,
+          message: error.message,
+        });
+        return;
+      }
+      throw error;
+    }
+
     sendJson(res, accepted.duplicate ? 200 : 202, {
       ok: true,
       duplicate: accepted.duplicate,

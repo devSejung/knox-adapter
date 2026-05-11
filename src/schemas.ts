@@ -12,13 +12,14 @@ export const knoxInboundSchema = z.object({
     department: z.string().trim().min(1).optional(),
   }),
   conversation: z.object({
-    type: z.literal("dm"),
+    type: z.enum(["dm", "room"]),
     conversationId: z.string().trim().min(1),
     threadId: z.string().trim().min(1).nullable().optional(),
   }),
   text: z.string().trim().min(1),
   preferredSessionMode: z.enum(["shared_main", "isolated_dm"]).optional(),
   agentId: z.string().trim().min(1).optional(),
+  sessionKey: z.string().trim().min(1).optional(),
 });
 
 export type KnoxInboundSchema = z.infer<typeof knoxInboundSchema>;

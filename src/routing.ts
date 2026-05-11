@@ -6,6 +6,16 @@ const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9_-]+/gi;
 const LEADING_DASH_RE = /^-+/;
 const TRAILING_DASH_RE = /-+$/;
 
+export class RoutingError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "RoutingError";
+    this.code = code;
+  }
+}
+
 function normalizeNonEmpty(value?: string | null): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
@@ -49,12 +59,42 @@ function resolveSessionMode(config: AdapterConfig, message: KnoxInboundPayload):
   return message.preferredSessionMode ?? config.DEFAULT_SESSION_MODE;
 }
 
+function resolveExplicitSessionKey(message: KnoxInboundPayload, agentId: string): string | null {
+  const explicitSessionKey = normalizeNonEmpty(message.sessionKey);
+  if (!explicitSessionKey) {
+    return null;
+  }
+
+  if (!normalizeNonEmpty(message.agentId)) {
+    throw new RoutingError("missing_agent_id", "sessionKey requires agentId.");
+  }
+
+  const requiredPrefix = `agent:${agentId}:`;
+  if (!explicitSessionKey.startsWith(requiredPrefix)) {
+    throw new RoutingError(
+      "agent_session_mismatch",
+      `sessionKey must start with ${requiredPrefix}.`,
+    );
+  }
+
+  if (explicitSessionKey.length <= requiredPrefix.length) {
+    throw new RoutingError("invalid_session_key", "sessionKey must include a session scope.");
+  }
+
+  return explicitSessionKey;
+}
+
 export function resolveRouting(
   config: AdapterConfig,
   message: KnoxInboundPayload,
 ): PlatformClawRouting {
   const employeeId = deriveEmployeeId(message);
   const agentId = deriveAgentId(message);
+  const explicitSessionKey = resolveExplicitSessionKey(message, agentId);
+  if (explicitSessionKey) {
+    return { employeeId, agentId, sessionKey: explicitSessionKey };
+  }
+
   const sessionMode = resolveSessionMode(config, message);
   const sessionKey =
     sessionMode === "shared_main"

@@ -38,6 +38,15 @@
       "model": {
         "primary": "openai-codex/gpt-5.4"
       },
+      "compaction": {
+        "mode": "safeguard",
+        "reserveTokens": 12000,
+        "reserveTokensFloor": 12000,
+        "keepRecentTokens": 8000,
+        "maxHistoryShare": 0.7,
+        "recentTurnsPreserve": 3,
+        "identifierPolicy": "strict"
+      },
       "workspace": "~/.openclaw/workspace-main",
       "thinkingDefault": "medium",
       "heartbeat": {

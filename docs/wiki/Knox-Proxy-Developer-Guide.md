@@ -88,7 +88,7 @@ POST /api/v1/platformclaw/knox/inbound
 | `messageId` | 필수 | 메시지 dedupe 식별자 |
 | `occurredAt` | 필수 | 원본 발생 시각 |
 | `sender.knoxUserId` | 필수 | Knox 사용자 ID |
-| `conversation.type` | 필수 | 현재는 `dm`만 허용 |
+| `conversation.type` | 필수 | Knox 대화 형태. `dm` 또는 `room` |
 | `conversation.conversationId` | 필수 | Knox 대화방 ID |
 | `text` | 필수 | 사용자 메시지 본문 |
 
@@ -103,6 +103,7 @@ POST /api/v1/platformclaw/knox/inbound
 | `conversation.threadId` | 권장 | thread 구분이 있으면 전달 |
 | `preferredSessionMode` | 권장 | `isolated_dm` 또는 `shared_main` |
 | `agentId` | 선택 | Proxy가 명시적으로 계산했을 때만 |
+| `sessionKey` | 선택 | Proxy가 특수 라우팅을 명시할 때만 |
 
 권장 payload 예시:
 
@@ -253,9 +254,24 @@ Proxy는 세션 정책을 힌트로 전달할 수 있다.
 
 중요:
 
-- Proxy는 `sessionKey` 완성 문자열을 직접 강제하지 않는다
-- Proxy는 `preferredSessionMode`만 전달한다
-- 최종 `sessionKey` 계산은 Adapter가 한다
+- 일반 DM은 Proxy가 `sessionKey`를 보내지 않고 Adapter fallback을 사용한다
+- 특수 라우팅이 필요한 경우 Proxy가 `agentId`와 `sessionKey`를 함께 보낼 수 있다
+- 명시적 `sessionKey`는 반드시 `agent:<agentId>:`로 시작해야 한다
+- `sessionKey`만 보내거나 `agentId`와 맞지 않는 `sessionKey`를 보내면 Adapter가 거절한다
+
+단체방 예:
+
+```json
+{
+  "conversation": {
+    "type": "room",
+    "conversationId": "room_123"
+  },
+  "agentId": "knox_group",
+  "sessionKey": "agent:knox_group:knox:room:room_123",
+  "text": "[Knox 단체방: room_123]\n[발화자: seungon.jung]\n\n이 이슈 정리해줘"
+}
+```
 
 ---
 

@@ -137,12 +137,13 @@ POST /api/v1/platformclaw/knox/inbound
 | `sender.employeeEmail` | `string` | 선택 | 회사 이메일. `agentId` 계산 기본값 |
 | `sender.displayName` | `string` | 선택 | 사용자 표시 이름 |
 | `sender.department` | `string` | 선택 | 사용자 부서 |
-| `conversation.type` | `string` | 필수 | 현재는 `dm`만 허용 |
+| `conversation.type` | `string` | 필수 | Knox 대화 형태. `dm` 또는 `room` |
 | `conversation.conversationId` | `string` | 필수 | Knox 대화방 식별자 |
 | `conversation.threadId` | `string \| null` | 선택 | thread 식별자 |
 | `text` | `string` | 필수 | 사용자 메시지 본문 |
 | `preferredSessionMode` | `string` | 선택 | `shared_main` 또는 `isolated_dm` 힌트 |
 | `agentId` | `string` | 선택 | Proxy가 명시적으로 계산한 `agentId` |
+| `sessionKey` | `string` | 선택 | Proxy가 명시적으로 계산한 PlatformClaw 세션 키 |
 
 ### 세션 관련 설명
 
@@ -150,12 +151,28 @@ POST /api/v1/platformclaw/knox/inbound
 | --- | --- |
 | `agentId` | PlatformClaw agent 식별자 |
 | `preferredSessionMode` | Adapter가 `sessionKey`를 결정할 때 참고하는 힌트 |
+| `sessionKey` | Proxy가 특수 라우팅을 명시할 때 사용하는 세션 override |
 
 중요:
 
-- Proxy는 임의의 `sessionKey`를 직접 강제하지 않는다.
-- Adapter가 최종 `sessionKey`를 만든다.
+- `agentId`와 `sessionKey`를 둘 다 보내면 Adapter는 둘의 일치성을 검증한 뒤 그대로 사용한다.
+- `agentId`만 보내면 Adapter가 기존 정책으로 `sessionKey`를 만든다.
+- `sessionKey`만 보내면 Adapter가 거절한다.
+- `agentId`와 `sessionKey`를 둘 다 보내지 않으면 Adapter가 기존 fallback으로 둘 다 계산한다.
+- 명시적 `sessionKey`는 반드시 `agent:<agentId>:`로 시작해야 한다.
 - 기본 정책은 `isolated_dm`이다.
+
+단체방처럼 Proxy가 별도 정책을 적용해야 하는 경우 예:
+
+```json
+{
+  "agentId": "knox_group",
+  "sessionKey": "agent:knox_group:knox:room:room_123",
+  "text": "[Knox 단체방: room_123]\n[발화자: seungon.jung]\n\n이 이슈 정리해줘"
+}
+```
+
+이 경우 Adapter는 단체방 정책을 해석하지 않고 `agentId`/`sessionKey` 일치 여부만 검증한다.
 
 ### 요청 예시
 
@@ -181,6 +198,28 @@ POST /api/v1/platformclaw/knox/inbound
 }
 ```
 
+### 명시적 sessionKey 요청 예시
+
+```json
+{
+  "eventId": "evt_20260409_000002",
+  "messageId": "msg_20260409_000002",
+  "occurredAt": "2026-04-09T14:05:00+09:00",
+  "sender": {
+    "knoxUserId": "seungon.jung",
+    "displayName": "Seungon Jung"
+  },
+  "conversation": {
+    "type": "room",
+    "conversationId": "room_123",
+    "threadId": null
+  },
+  "agentId": "knox_group",
+  "sessionKey": "agent:knox_group:knox:room:room_123",
+  "text": "[Knox 단체방: room_123]\n[발화자: seungon.jung]\n\n이 이슈 정리해줘"
+}
+```
+
 ### 응답 예시
 
 ```json
@@ -200,7 +239,7 @@ POST /api/v1/platformclaw/knox/inbound
 | --- | --- |
 | `202` | 정상 수신 후 비동기 처리 시작 |
 | `200` | 중복 메시지로 판단되어 기존 상태 반환 |
-| `400` | body 형식 오류 |
+| `400` | body 형식 오류 또는 라우팅 정책 위반 |
 | `401` | 서명 검증 실패 |
 | `404` | 잘못된 endpoint |
 | `503` | 준비 상태 아님 |

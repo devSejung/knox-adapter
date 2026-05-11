@@ -196,7 +196,7 @@ Mock Gateway와 실제 Gateway 검증은 분리해야 한다.
 
 즉:
 
-- Proxy는 필요 시 `preferredSessionMode` 또는 `sessionKeyHint`를 전달할 수 있다
+- Proxy는 필요 시 `preferredSessionMode` 또는 검증 가능한 `sessionKey`를 전달할 수 있다
 - Adapter는 이를 해석하되, 허용된 정책 범위 안에서만 반영한다
 
 권장 기본 정책:
@@ -205,33 +205,36 @@ Mock Gateway와 실제 Gateway 검증은 분리해야 한다.
   - `agent:<agentId>:knox:dm:<knoxUserId>`
 - 명시적 정책이 있을 때만 shared main 허용
   - `agent:<agentId>:main`
+- Proxy가 `agentId`와 함께 명시적 `sessionKey`를 보낼 때만 특수 세션 허용
+  - 예: `agent:<agentId>:knox:room:<roomId>`
 
 운영 원칙:
 
 - Proxy가 세션 정책을 힌트로 전달하는 것은 허용
 - 최종 허용 여부 판단은 Adapter가 한다
-- Adapter는 아래 두 정책만 허용한다
+- Adapter는 아래 기본 정책을 허용한다
   - `isolated_dm`
   - `shared_main`
-- 임의의 `sessionKey` 문자열을 Proxy가 직접 강제하는 구조는 금지한다
+- 명시적 `sessionKey`는 `agent:<agentId>:` prefix 검증을 통과해야 한다
+- `sessionKey`만 단독으로 전달하거나 `agentId`와 불일치하는 `sessionKey`는 거절한다
 
 정리:
 
 - 사용자가 세션 정책을 아직 확정하지 못한 경우에도 운영 기본값은 `isolated_dm`으로 둔다
 - 이후 회사 정책상 웹과 Knox DM을 합쳐야 할 경우에만 Proxy가 `shared_main` 힌트를 보낸다
-- 따라서 지금 구현은 "Proxy가 정책을 제안하고, Adapter가 허용된 정책만 적용"하는 구조로 고정한다
+- 따라서 지금 구현은 "Proxy가 정책을 제안하고, Adapter가 일치성을 검증한 정책만 적용"하는 구조로 고정한다
 
 이유:
 
 - 운영 기본값은 분리 세션이 안전하다
 - 다만 회사 정책상 웹과 Knox를 같은 세션으로 합치고 싶을 수도 있으므로, Proxy 힌트 기반 override는 열어둔다
-- Adapter가 무제한으로 세션을 신뢰하면 안 되므로, 허용 가능한 두 정책만 지원한다
+- Adapter가 무제한으로 세션을 신뢰하면 안 되므로, `agentId`와 `sessionKey` 일치 검증을 강제한다
 
 추가 원칙:
 
-- Proxy는 `sessionKey` 완성 문자열을 직접 강제하지 않는다.
-- Proxy는 최대한 `preferredSessionMode`만 전달한다.
-- 실제 `sessionKey` 계산은 Adapter 책임으로 유지한다.
+- 일반 DM은 Proxy가 `sessionKey` 완성 문자열을 직접 보내지 않고 Adapter fallback을 사용한다.
+- 단체방 등 특수 라우팅은 Proxy가 `agentId`와 `sessionKey`를 함께 보낼 수 있다.
+- 명시적 `sessionKey`가 없을 때의 실제 `sessionKey` 계산은 Adapter 책임으로 유지한다.
 
 ---
 
@@ -325,11 +328,13 @@ Proxy 구현 담당자는 아래를 알아야 한다.
 - Knox 발신 API 호출
 - Knox 사용자 식별
 - HMAC 또는 내부 서비스 인증 적용
-- Adapter에 `agentId`를 줄 수는 있지만 `sessionKey`를 강제하지는 않음
+- Adapter에 `agentId`를 줄 수 있음
+- 특수 라우팅이 필요하면 `agentId`와 일치하는 `sessionKey`를 함께 줄 수 있음
 
 ### 6.2 Proxy가 Adapter에 주면 안 되는 것
 
-- 임의의 `sessionKey`
+- `agentId` 없이 단독 전달되는 `sessionKey`
+- `agentId`와 prefix가 일치하지 않는 `sessionKey`
 - Adapter 내부 상태를 우회하는 재시도 강제 로직
 - Knox 원본 API 포맷을 그대로 전달하는 것
 
@@ -1241,8 +1246,8 @@ Adapter -> Proxy outbound payload에는 최소한 아래가 포함되어야 한�
 - Proxy가 정책 힌트를 줄 수 있음
 - Adapter 기본값은 분리 세션
 - shared main은 명시적 요청일 때만 허용
-- 허용 모드는 `isolated_dm`, `shared_main` 두 가지뿐
-- Proxy가 임의 문자열 `sessionKey`를 강제하는 방식은 금지
+- 기본 허용 모드는 `isolated_dm`, `shared_main`
+- 특수 라우팅은 `agentId`와 함께 검증 가능한 `sessionKey`를 보낼 때만 허용
 
 2. 사용자 매핑
 
