@@ -88,7 +88,7 @@ POST /api/v1/platformclaw/knox/inbound
 | `messageId` | 필수 | 메시지 dedupe 식별자 |
 | `occurredAt` | 필수 | 원본 발생 시각 |
 | `sender.knoxUserId` | 필수 | Knox 사용자 ID |
-| `conversation.type` | 필수 | Knox 대화 형태. `dm` 또는 `room` |
+| `conversation.type` | 필수 | 현재는 `dm`만 허용 |
 | `conversation.conversationId` | 필수 | Knox 대화방 ID |
 | `text` | 필수 | 사용자 메시지 본문 |
 
@@ -103,7 +103,6 @@ POST /api/v1/platformclaw/knox/inbound
 | `conversation.threadId` | 권장 | thread 구분이 있으면 전달 |
 | `preferredSessionMode` | 권장 | `isolated_dm` 또는 `shared_main` |
 | `agentId` | 선택 | Proxy가 명시적으로 계산했을 때만 |
-| `sessionKey` | 선택 | Proxy가 특수 라우팅을 명시할 때만 |
 
 권장 payload 예시:
 
@@ -155,8 +154,8 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
 | `chatroomId` | Knox 발신 대상 대화방 ID |
 | `chatMsgId` | Knox 발신 메시지 ID |
 | `msgType` | 현재는 `text` |
-| `status` | `final`, `error`, `timeout` |
-| `text` | Knox로 보낼 최종 텍스트 |
+| `status` | `progress`, `final`, `error`, `timeout` |
+| `text` | Knox로 보낼 텍스트 |
 | `final` | 최종 메시지 여부 |
 
 예시:
@@ -176,6 +175,26 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
   "status": "final",
   "text": "회의 내용을 정리했습니다.",
   "final": true
+}
+```
+
+진행 상태 예시:
+
+```json
+{
+  "messageId": "msg_20260409_000001",
+  "conversationId": "conv_12345",
+  "threadId": null,
+  "agentId": "seungon.jung",
+  "sessionKey": "agent:seungon.jung:knox:dm:u_12345",
+  "runId": "queue-msg_20260409_000002",
+  "requestId": "req_abc124",
+  "chatroomId": "conv_12345",
+  "chatMsgId": "knox-out-12346",
+  "msgType": "text",
+  "status": "progress",
+  "text": "앞선 요청 1건 처리 후 이어서 진행합니다.",
+  "final": false
 }
 ```
 
@@ -254,24 +273,9 @@ Proxy는 세션 정책을 힌트로 전달할 수 있다.
 
 중요:
 
-- 일반 DM은 Proxy가 `sessionKey`를 보내지 않고 Adapter fallback을 사용한다
-- 특수 라우팅이 필요한 경우 Proxy가 `agentId`와 `sessionKey`를 함께 보낼 수 있다
-- 명시적 `sessionKey`는 반드시 `agent:<agentId>:`로 시작해야 한다
-- `sessionKey`만 보내거나 `agentId`와 맞지 않는 `sessionKey`를 보내면 Adapter가 거절한다
-
-단체방 예:
-
-```json
-{
-  "conversation": {
-    "type": "room",
-    "conversationId": "room_123"
-  },
-  "agentId": "knox_group",
-  "sessionKey": "agent:knox_group:knox:room:room_123",
-  "text": "[Knox 단체방: room_123]\n[발화자: seungon.jung]\n\n이 이슈 정리해줘"
-}
-```
+- Proxy는 `sessionKey` 완성 문자열을 직접 강제하지 않는다
+- Proxy는 `preferredSessionMode`만 전달한다
+- 최종 `sessionKey` 계산은 Adapter가 한다
 
 ---
 
@@ -292,6 +296,39 @@ Proxy는 세션 정책을 힌트로 전달할 수 있다.
 
 - `x-platformclaw-timestamp`
 - `x-platformclaw-signature`
+
+### `x-platformclaw-signature` 계산 방법
+
+서명 계산 기준은 아래와 같다.
+
+```text
+payload = "<x-platformclaw-timestamp>.<rawBody>"
+signature = HMAC_SHA256(PROXY_SHARED_SECRET, payload)
+header = "sha256=" + hex(signature)
+```
+
+중요:
+
+- `rawBody`는 실제 HTTP로 보낼 JSON 문자열 그대로여야 한다.
+- JSON을 다시 정렬하거나 pretty-print하면 서명이 달라질 수 있다.
+- `x-platformclaw-timestamp`는 밀리초 epoch 문자열을 권장한다.
+
+Node.js 예시:
+
+```js
+import crypto from "node:crypto";
+
+const rawBody = JSON.stringify(body);
+const timestamp = Date.now().toString();
+const payload = `${timestamp}.${rawBody}`;
+const signature = crypto
+  .createHmac("sha256", process.env.PROXY_SHARED_SECRET)
+  .update(payload)
+  .digest("hex");
+
+headers["x-platformclaw-timestamp"] = timestamp;
+headers["x-platformclaw-signature"] = `sha256=${signature}`;
+```
 - `PROXY_SHARED_SECRET`
 
 ### 8.2 Adapter -> Proxy
@@ -318,10 +355,13 @@ Proxy 개발자 기준으로 중요한 것은 아래다.
 - 중복 메시지 처리
 - 기존 상태 재사용
 
-3. Adapter outbound `status=final`
+3. Adapter outbound `status=progress`
+- queue 대기 또는 context compaction 같은 진행 상태 안내
+
+4. Adapter outbound `status=final`
 - Knox에 정상 발신
 
-4. Adapter outbound `status=error` 또는 `timeout`
+5. Adapter outbound `status=error` 또는 `timeout`
 - Knox에 실패 안내를 보낼지, 운영 로그만 남길지 정책 결정 필요
 
 권장:

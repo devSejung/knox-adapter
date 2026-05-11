@@ -125,6 +125,80 @@ POST /api/v1/platformclaw/knox/inbound
 | `x-platformclaw-timestamp` | 요청 생성 시각. 재전송 공격 방지와 시계 오차 검증에 사용 |
 | `x-platformclaw-signature` | `timestamp.body` 기준 HMAC SHA-256 값 |
 
+### HMAC 서명 계산 규칙
+
+`x-platformclaw-signature`는 임의 문자열이 아니라 아래 규칙으로 계산한 값이다.
+
+1. `x-platformclaw-timestamp` 값을 준비한다.
+2. HTTP body 원문(JSON 문자열 그대로)을 준비한다.
+3. 아래 문자열을 만든다.
+
+```text
+<timestamp>.<rawBody>
+```
+
+4. 위 문자열을 `PROXY_SHARED_SECRET`로 HMAC SHA-256 계산한다.
+5. hex digest를 구한다.
+6. 최종 헤더 값은 아래 형식으로 넣는다.
+
+```text
+sha256=<hex-digest>
+```
+
+주의:
+
+- body를 파싱 후 다시 serialize하면 공백/키 순서가 달라질 수 있다.
+- 서명은 반드시 실제 전송할 raw JSON body 기준으로 계산해야 한다.
+- Adapter는 현재 timestamp 허용 오차를 약 5분으로 본다.
+
+### 서명 예시
+
+예:
+
+- `timestamp`: `1712812345678`
+- `rawBody`:
+
+```json
+{"messageId":"msg-1","text":"hello"}
+```
+
+서명 대상 문자열:
+
+```text
+1712812345678.{"messageId":"msg-1","text":"hello"}
+```
+
+최종 헤더 예시:
+
+```http
+x-platformclaw-timestamp: 1712812345678
+x-platformclaw-signature: sha256=<hmac-sha256-hex>
+```
+
+### Node.js 예시
+
+```js
+import crypto from "node:crypto";
+
+const timestamp = Date.now().toString();
+const rawBody = JSON.stringify({
+  messageId: "msg-1",
+  text: "hello",
+});
+
+const payload = `${timestamp}.${rawBody}`;
+const signature = crypto
+  .createHmac("sha256", process.env.PROXY_SHARED_SECRET)
+  .update(payload)
+  .digest("hex");
+
+const headers = {
+  "content-type": "application/json",
+  "x-platformclaw-timestamp": timestamp,
+  "x-platformclaw-signature": `sha256=${signature}`,
+};
+```
+
 ### Body 파라미터 표
 
 | 필드 | 타입 | 필수 | 설명 |
