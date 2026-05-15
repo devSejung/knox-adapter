@@ -116,6 +116,8 @@ export class KnoxAdapterService {
       conversationId: message.conversation.conversationId,
       threadId: message.conversation.threadId ?? null,
       conversationType: message.conversation.type,
+      senderId: message.sender.knoxUserId,
+      senderDisplayName: message.sender.displayName ?? null,
     });
 
     this.store.updateProgress(message.messageId, {

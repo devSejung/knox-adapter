@@ -50,6 +50,8 @@ export type MessageRecord = {
   conversationId: string;
   threadId: string | null;
   conversationType: string;
+  senderId: string;
+  senderDisplayName: string | null;
   requestId: string | null;
   chatroomId: string | null;
   chatMsgId: string | null;
@@ -98,6 +100,8 @@ export type ProxyOutboundPayload = {
   messageId: string;
   conversationId: string;
   threadId: string | null;
+  senderId: string;
+  senderDisplayName: string | null;
   agentId: string;
   sessionKey: string;
   runId: string;

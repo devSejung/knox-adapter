@@ -35,16 +35,18 @@ export class AdapterStore {
     conversationId: string;
     threadId: string | null;
     conversationType: string;
+    senderId: string;
+    senderDisplayName: string | null;
   }): MessageRecord {
     const now = new Date().toISOString();
     this.db
       .prepare(
         `insert into inbound_messages (
           message_id, event_id, employee_id, agent_id, session_key,
-          conversation_id, thread_id, conversation_type,
+          conversation_id, thread_id, conversation_type, sender_id, sender_display_name,
           request_id, chatroom_id, chatmsg_id, run_id,
           status, error_code, error_message, created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, null, null, null, null, 'received', null, null, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, null, null, 'received', null, null, ?, ?)`,
       )
       .run(
         params.messageId,
@@ -55,6 +57,8 @@ export class AdapterStore {
         params.conversationId,
         params.threadId,
         params.conversationType,
+        params.senderId,
+        params.senderDisplayName,
         now,
         now,
       );
@@ -103,6 +107,8 @@ export class AdapterStore {
         conversation_id text not null,
         thread_id text,
         conversation_type text not null,
+        sender_id text not null default '',
+        sender_display_name text,
         request_id text,
         chatroom_id text,
         chatmsg_id text,
@@ -116,6 +122,16 @@ export class AdapterStore {
       create index if not exists idx_inbound_messages_status on inbound_messages(status);
       create index if not exists idx_inbound_messages_run_id on inbound_messages(run_id);
     `);
+    this.addColumnIfMissing("inbound_messages", "sender_id", "text not null default ''");
+    this.addColumnIfMissing("inbound_messages", "sender_display_name", "text");
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string) {
+    const rows = this.db.prepare(`pragma table_info(${table})`).all() as Array<{ name?: unknown }>;
+    if (rows.some((row) => row.name === column)) {
+      return;
+    }
+    this.db.exec(`alter table ${table} add column ${column} ${definition}`);
   }
 
   private mapRow(row: Record<string, unknown>): MessageRecord {
@@ -128,6 +144,8 @@ export class AdapterStore {
       conversationId: String(row.conversation_id),
       threadId: row.thread_id ? String(row.thread_id) : null,
       conversationType: String(row.conversation_type),
+      senderId: row.sender_id ? String(row.sender_id) : "",
+      senderDisplayName: row.sender_display_name ? String(row.sender_display_name) : null,
       requestId: row.request_id ? String(row.request_id) : null,
       chatroomId: row.chatroom_id ? String(row.chatroom_id) : null,
       chatMsgId: row.chatmsg_id ? String(row.chatmsg_id) : null,

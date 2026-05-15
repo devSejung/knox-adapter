@@ -102,6 +102,8 @@ class FakeStore {
     conversationId: string;
     threadId: string | null;
     conversationType: string;
+    senderId: string;
+    senderDisplayName: string | null;
   }) {
     const now = new Date().toISOString();
     const record: MessageRecord = {
@@ -113,6 +115,8 @@ class FakeStore {
       conversationId: params.conversationId,
       threadId: params.threadId,
       conversationType: params.conversationType,
+      senderId: params.senderId,
+      senderDisplayName: params.senderDisplayName,
       requestId: null,
       chatroomId: null,
       chatMsgId: null,
@@ -195,6 +199,38 @@ class FakeOutbound {
   }
 }
 
+describe("KnoxAdapterService outbound sender metadata", () => {
+  it("stores inbound sender metadata for later outbound delivery", async () => {
+    const config = createConfig({ ENABLE_STAGE_UPDATES: false });
+    const logger = {
+      info: mock.fn(),
+      warn: mock.fn(),
+      error: mock.fn(),
+    };
+    const store = new FakeStore();
+    const outbound = new FakeOutbound();
+    const gateway = new FakeGateway(
+      { runId: "run-1", transport: "http-responses" },
+      { runId: "run-1", sessionKey: "agent:hyeonho_jung:knox:dm:hyeonho.jung", status: "final", text: "done" },
+      [],
+    );
+    const service = new KnoxAdapterService(
+      config,
+      logger as never,
+      store as never,
+      gateway as never,
+      outbound as never,
+    );
+
+    const inbound = createInbound();
+    await service.acceptInbound(inbound);
+
+    const record = store.getByMessageId(inbound.messageId);
+    assert.equal(record?.senderId, "knox-user-1");
+    assert.equal(record?.senderDisplayName, "Jung Hyeonho");
+  });
+});
+
 describe("KnoxAdapterService compaction stage updates", () => {
   it("sends compaction progress and completion messages before the final outbound", async () => {
     const config = createConfig({ ENABLE_STAGE_UPDATES: true });
@@ -244,6 +280,8 @@ describe("KnoxAdapterService compaction stage updates", () => {
       conversationId: inbound.conversation.conversationId,
       threadId: inbound.conversation.threadId ?? null,
       conversationType: inbound.conversation.type,
+      senderId: inbound.sender.knoxUserId,
+      senderDisplayName: inbound.sender.displayName ?? null,
     });
 
     await (service as any).process(inbound);
@@ -304,6 +342,8 @@ describe("KnoxAdapterService compaction stage updates", () => {
       conversationId: inbound.conversation.conversationId,
       threadId: inbound.conversation.threadId ?? null,
       conversationType: inbound.conversation.type,
+      senderId: inbound.sender.knoxUserId,
+      senderDisplayName: inbound.sender.displayName ?? null,
     });
 
     await (service as any).process(inbound);

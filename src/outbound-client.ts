@@ -59,6 +59,8 @@ export class ProxyOutboundClient {
       messageId: params.record.messageId,
       conversationId: params.record.conversationId,
       threadId: params.record.threadId,
+      senderId: params.record.senderId,
+      senderDisplayName: params.record.senderDisplayName,
       agentId: params.record.agentId,
       sessionKey: params.record.sessionKey,
       runId: params.runId,

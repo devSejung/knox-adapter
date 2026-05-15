@@ -347,6 +347,8 @@ POST /api/v1/platformclaw/knox/outbound/send
 | `messageId` | `string` | 필수 | 원본 Knox 메시지 ID |
 | `conversationId` | `string` | 필수 | Knox 대화방 식별자 |
 | `threadId` | `string \| null` | 선택 | thread 식별자 |
+| `senderId` | `string` | 필수 | 원본 Knox 발신자 ID |
+| `senderDisplayName` | `string \| null` | 선택 | 원본 Knox 발신자 표시 이름 |
 | `agentId` | `string` | 필수 | 실행에 사용한 PlatformClaw agent |
 | `sessionKey` | `string` | 필수 | 실행에 사용한 PlatformClaw 세션 |
 | `runId` | `string` | 필수 | PlatformClaw run 식별자 |
@@ -386,6 +388,8 @@ Adapter는 Knox 원본 발신 헤더를 직접 모를 필요는 없지만, Proxy
   "messageId": "msg_20260409_000001",
   "conversationId": "conv_12345",
   "threadId": null,
+  "senderId": "u_12345",
+  "senderDisplayName": "Seungon Jung",
   "agentId": "seungon.jung",
   "sessionKey": "agent:seungon.jung:knox:dm:u_12345",
   "runId": "run_abc123",

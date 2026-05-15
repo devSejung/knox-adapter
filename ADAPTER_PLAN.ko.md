@@ -903,6 +903,8 @@ run completion timeout 초과 시:
 - `messageId`
 - `conversationId`
 - `threadId`
+- `senderId`
+- `senderDisplayName`
 - `text`
 - `runId`
 - `final`
@@ -1004,6 +1006,8 @@ Adapter -> Proxy outbound payload에는 최소한 아래가 포함되어야 한�
   "messageId": "msg-1",
   "conversationId": "conv-1",
   "threadId": "th-1",
+  "senderId": "u12345",
+  "senderDisplayName": "Seungon Jung",
   "agentId": "eon",
   "sessionKey": "agent:eon:knox:dm:u12345",
   "runId": "run_abc123",

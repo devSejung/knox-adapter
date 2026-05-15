@@ -147,6 +147,8 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
 | `messageId` | 원본 Knox 메시지 식별자 |
 | `conversationId` | Knox 대화방 ID |
 | `threadId` | Knox thread ID |
+| `senderId` | 원본 Knox 발신자 ID |
+| `senderDisplayName` | 원본 Knox 발신자 표시 이름 |
 | `agentId` | PlatformClaw agent 식별자 |
 | `sessionKey` | PlatformClaw session 식별자 |
 | `runId` | PlatformClaw 실행 단위 ID |
@@ -165,6 +167,8 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
   "messageId": "msg_20260409_000001",
   "conversationId": "conv_12345",
   "threadId": null,
+  "senderId": "u_12345",
+  "senderDisplayName": "Seungon Jung",
   "agentId": "seungon.jung",
   "sessionKey": "agent:seungon.jung:knox:dm:u_12345",
   "runId": "run_abc123",
@@ -185,6 +189,8 @@ Proxy는 이 값을 받아 Knox 발신 API로 변환해야 한다.
   "messageId": "msg_20260409_000001",
   "conversationId": "conv_12345",
   "threadId": null,
+  "senderId": "u_12345",
+  "senderDisplayName": "Seungon Jung",
   "agentId": "seungon.jung",
   "sessionKey": "agent:seungon.jung:knox:dm:u_12345",
   "runId": "queue-msg_20260409_000002",

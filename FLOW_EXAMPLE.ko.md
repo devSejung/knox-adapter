@@ -268,6 +268,8 @@ authorization: Bearer <token>
   "messageId": "msg_20260409_000001",
   "conversationId": "conv_12345",
   "threadId": null,
+  "senderId": "u_12345",
+  "senderDisplayName": "Seungon Jung",
   "agentId": "seungon.jung",
   "sessionKey": "agent:seungon.jung:knox:dm:u_12345",
   "runId": "run_abc123",
