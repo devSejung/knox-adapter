@@ -7,6 +7,7 @@
 - [개요 / README](../../README.md)
 - [설계 문서](./Architecture-and-Design.md)
 - [Proxy-Adapter API 계약](./Proxy-Adapter-API.md)
+- [PlatformClaw Knox Channel 설정](./Knox-Channel-Config.md)
 - [Knox Proxy 개발자 가이드](./Knox-Proxy-Developer-Guide.md)
 - [동작 흐름 예시](./Flow-Example.md)
 - [Mock Proxy 테스트 가이드](./Mock-Proxy-Test-Guide.md)
@@ -17,9 +18,10 @@
 1. README
 2. 설계 문서
 3. Proxy-Adapter API 계약
-4. Knox Proxy 개발자 가이드
-5. 동작 흐름 예시
-6. 테스트 / 배포 가이드
+4. PlatformClaw Knox Channel 설정
+5. Knox Proxy 개발자 가이드
+6. 동작 흐름 예시
+7. 테스트 / 배포 가이드
 
 ## 현재 구현 핵심
 
@@ -31,3 +33,4 @@
 - PlatformClaw Gateway websocket/RPC client
 - websocket `chat.send` 실패 시 `/v1/responses` 자동 폴백
 - Proxy outbound 최종 응답 전달
+- PlatformClaw Core cron/job/subagent 결과를 Knox channel로 outbound 전달
