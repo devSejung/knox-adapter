@@ -41,6 +41,7 @@ const configSchema = z.object({
   PROXY_OUTBOUND_URL: z.string().trim().url().optional(),
   PROXY_OUTBOUND_AUTH_TOKEN: z.string().trim().min(1).optional(),
   PROXY_SEND_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  CORE_OUTBOUND_AUTH_TOKEN: z.string().trim().min(1).optional(),
 
   PLATFORMCLAW_GATEWAY_URL: z
     .string()

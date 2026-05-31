@@ -74,6 +74,27 @@ function extractText(message: unknown): string {
     .join("\n");
 }
 
+const SKILL_HUB_COMMAND_RE = /^\s*\/skillhub\s+(install|update|delete)\s+([a-z0-9][a-z0-9-]{1,80})\s*$/i;
+
+function extractStrictSkillHubCommandFromLastLine(text: string): string | undefined {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lastLine = lines.at(-1);
+  if (!lastLine) {
+    return undefined;
+  }
+  return SKILL_HUB_COMMAND_RE.test(lastLine) ? lastLine : undefined;
+}
+
+function buildKnoxOriginTarget(inbound: KnoxInboundPayload): string {
+  if (inbound.conversation.type === "dm") {
+    return `dm:${inbound.conversation.conversationId}`;
+  }
+  return `room:${inbound.conversation.conversationId}`;
+}
+
 export class PlatformClawGatewayClient {
   private ws: WebSocket | null = null;
   private connectPromise: Promise<void> | null = null;
@@ -94,23 +115,38 @@ export class PlatformClawGatewayClient {
   }): Promise<GatewayChatAccepted> {
     const idempotencyKey = `${params.inbound.messageId}:${params.inbound.eventId}`;
     const transport = this.config.PLATFORMCLAW_TRANSPORT;
+    const commandBody = extractStrictSkillHubCommandFromLastLine(params.inbound.text);
+    const gatewayMessage = commandBody ?? params.inbound.text;
+    const requiresCommandTransport = Boolean(commandBody);
 
-    if (transport === "http-responses") {
-      return await this.sendChatViaHttpResponses(params);
+    if (transport === "http-responses" && !requiresCommandTransport) {
+      return await this.sendChatViaHttpResponses({
+        ...params,
+        gatewayMessage,
+        commandBody,
+      });
     }
 
-    if (transport === "auto" && this.shouldPreferHttpResponses()) {
+    if (transport === "auto" && !requiresCommandTransport && this.shouldPreferHttpResponses()) {
       this.logger.info("using /v1/responses as primary transport", {
         sessionKey: params.routing.sessionKey,
       });
-      return await this.sendChatViaHttpResponses(params);
+      return await this.sendChatViaHttpResponses({
+        ...params,
+        gatewayMessage,
+        commandBody,
+      });
     }
 
     try {
       await this.ensureConnected();
       const payload = (await this.request("chat.send", {
         sessionKey: params.routing.sessionKey,
-        message: params.inbound.text,
+        message: gatewayMessage,
+        ...(commandBody ? { commandBody } : {}),
+        originatingChannel: "knox",
+        originatingTo: buildKnoxOriginTarget(params.inbound),
+        originatingThreadId: params.inbound.conversation.threadId ?? undefined,
         idempotencyKey,
         timeoutMs: this.config.PLATFORMCLAW_RUN_TIMEOUT_MS,
       })) as { runId?: unknown };
@@ -119,12 +155,27 @@ export class PlatformClawGatewayClient {
       return { runId, transport: "websocket" };
     } catch (error) {
       const err = asError(error);
-      if (transport === "auto" && this.shouldFallbackToHttpResponses(err)) {
+      if (
+        transport === "auto" &&
+        !requiresCommandTransport &&
+        this.shouldFallbackToHttpResponses(err)
+      ) {
         this.logger.warn("gateway websocket send failed; falling back to /v1/responses", {
           error: err.message,
           sessionKey: params.routing.sessionKey,
         });
-        return await this.sendChatViaHttpResponses(params);
+        return await this.sendChatViaHttpResponses({
+          ...params,
+          gatewayMessage,
+          commandBody,
+        });
+      }
+      if (requiresCommandTransport) {
+        this.logger.warn("strict command transport failed; /v1/responses fallback disabled", {
+          error: err.message,
+          sessionKey: params.routing.sessionKey,
+          commandBody,
+        });
       }
       throw err;
     }
@@ -211,6 +262,8 @@ export class PlatformClawGatewayClient {
   private async sendChatViaHttpResponses(params: {
     routing: PlatformClawRouting;
     inbound: KnoxInboundPayload;
+    gatewayMessage: string;
+    commandBody?: string;
   }): Promise<GatewayChatAccepted> {
     const gatewaySecret =
       this.config.PLATFORMCLAW_GATEWAY_TOKEN || this.config.PLATFORMCLAW_GATEWAY_PASSWORD;
@@ -233,11 +286,17 @@ export class PlatformClawGatewayClient {
           authorization: `Bearer ${gatewaySecret}`,
           "content-type": "application/json",
           "x-openclaw-session-key": params.routing.sessionKey,
+          "x-openclaw-message-channel": "knox",
+          "x-openclaw-originating-channel": "knox",
+          "x-openclaw-originating-to": buildKnoxOriginTarget(params.inbound),
+          ...(params.inbound.conversation.threadId
+            ? { "x-openclaw-originating-thread-id": params.inbound.conversation.threadId }
+            : {}),
         },
         body: JSON.stringify({
           stream: false,
           model: `openclaw/${params.routing.agentId}`,
-          input: params.inbound.text,
+          input: params.gatewayMessage,
           user:
             params.inbound.sender.employeeEmail ||
             params.inbound.sender.employeeId ||

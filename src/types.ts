@@ -98,6 +98,7 @@ export type GatewayCompactionEvent = {
 
 export type ProxyOutboundPayload = {
   messageId: string;
+  conversationType?: "dm" | "room";
   conversationId: string;
   threadId: string | null;
   senderId: string;
@@ -112,6 +113,28 @@ export type ProxyOutboundPayload = {
   status: "progress" | "final" | "error" | "timeout";
   text: string;
   final: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export type CoreOutboundPayload = {
+  accountId?: string | null;
+  to: string;
+  conversationType?: "dm" | "room" | null;
+  conversationId?: string | null;
+  chatroomId?: string | null;
+  chatMsgId?: string | null;
+  messageId?: string | null;
+  threadId?: string | number | null;
+  text: string;
+  status?: "progress" | "final" | "error" | "timeout";
+  final?: boolean;
+  agentId?: string | null;
+  sessionKey?: string | null;
+  runId?: string | null;
+  requestId?: string | null;
+  senderId?: string | null;
+  senderDisplayName?: string | null;
   errorCode?: string;
   errorMessage?: string;
 };

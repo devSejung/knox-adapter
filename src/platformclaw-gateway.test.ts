@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
 import type { AdapterConfig } from "./config.js";
+import type { KnoxInboundPayload } from "./types.js";
 
 function createConfig(overrides?: Partial<AdapterConfig>): AdapterConfig {
   return {
@@ -88,5 +89,127 @@ describe("PlatformClawGatewayClient compaction events", () => {
       tokensAfter: 45_000,
       trigger: "manual",
     });
+  });
+});
+
+describe("PlatformClawGatewayClient Knox origin routing", () => {
+  it("uses the Knox conversation id as the DM delivery target so chatroomId can be restored", async () => {
+    let capturedOriginatingChannel = "";
+    let capturedOriginatingTo = "";
+    const fetchMock = mock.method(
+      globalThis,
+      "fetch",
+      async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const headers = new Headers(init?.headers);
+        capturedOriginatingChannel = headers.get("x-openclaw-originating-channel") ?? "";
+        capturedOriginatingTo = headers.get("x-openclaw-originating-to") ?? "";
+        return new Response(
+          JSON.stringify({
+            output: [{ type: "message", content: [{ text: "ok" }] }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    try {
+      const client = new PlatformClawGatewayClient(
+        createConfig({
+          ENABLE_STAGE_UPDATES: false,
+          PLATFORMCLAW_TRANSPORT: "http-responses",
+        }),
+        {
+          info: mock.fn(),
+          warn: mock.fn(),
+          error: mock.fn(),
+        } as never,
+      );
+      const inbound: KnoxInboundPayload = {
+        eventId: "evt-1",
+        messageId: "knox-msg-1",
+        occurredAt: "2026-05-16T00:00:00.000Z",
+        sender: {
+          knoxUserId: "seungon.jung",
+          employeeId: "seungon.jung",
+          employeeEmail: "seungon.jung@example.com",
+          displayName: "Seungon Jung",
+        },
+        conversation: {
+          type: "dm",
+          conversationId: "dm-chatroom-123",
+          threadId: null,
+        },
+        text: "hello",
+      };
+
+      await client.sendChat({
+        routing: {
+          employeeId: "seungon.jung",
+          agentId: "seungon-jung",
+          sessionKey: "agent:seungon-jung:knox:dm:seungon.jung",
+        },
+        inbound,
+      });
+
+      assert.equal(capturedOriginatingChannel, "knox");
+      assert.equal(capturedOriginatingTo, "dm:dm-chatroom-123");
+    } finally {
+      fetchMock.mock.restore();
+    }
+  });
+
+  it("forces websocket chat.send for strict skillhub commands even when http-responses is configured", async () => {
+    const client = new PlatformClawGatewayClient(
+      createConfig({
+        ENABLE_STAGE_UPDATES: false,
+        PLATFORMCLAW_TRANSPORT: "http-responses",
+      }),
+      {
+        info: mock.fn(),
+        warn: mock.fn(),
+        error: mock.fn(),
+      } as never,
+    ) as any;
+
+    let requestedMethod = "";
+    let requestedPayload: Record<string, unknown> | null = null;
+    client.ensureConnected = async () => {};
+    client.request = async (method: string, payload: Record<string, unknown>) => {
+      requestedMethod = method;
+      requestedPayload = payload;
+      return { runId: "run-1" };
+    };
+
+    const inbound: KnoxInboundPayload = {
+      eventId: "evt-2",
+      messageId: "knox-msg-2",
+      occurredAt: "2026-06-01T00:00:00.000Z",
+      sender: {
+        knoxUserId: "eon",
+        employeeId: "eon",
+        employeeEmail: "eon@samsung.com",
+        displayName: "Eon",
+      },
+      conversation: {
+        type: "room",
+        conversationId: "room_platform",
+        threadId: null,
+      },
+      text: "[그룹방에서 온 메세지입니다]\n사용자정보: eon / Samsung\n/skillhub install jedec-lpddr-dram-reference",
+    };
+
+    const accepted = await client.sendChat({
+      routing: {
+        employeeId: "eon",
+        agentId: "knox_group",
+        sessionKey: "agent:knox_group:knox:room:room_platform",
+      },
+      inbound,
+    });
+
+    assert.equal(accepted.transport, "websocket");
+    assert.equal(requestedMethod, "chat.send");
+    const payload = requestedPayload as { message?: string; commandBody?: string } | null;
+    assert.equal(payload?.message, "/skillhub install jedec-lpddr-dram-reference");
+    assert.equal(payload?.commandBody, "/skillhub install jedec-lpddr-dram-reference");
   });
 });

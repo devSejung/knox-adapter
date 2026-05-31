@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AdapterConfig } from "./config.js";
 import { Logger } from "./logger.js";
-import type { MessageRecord, ProxyOutboundPayload } from "./types.js";
+import type { CoreOutboundPayload, MessageRecord, ProxyOutboundPayload } from "./types.js";
 
 export type ProxyOutboundResult =
   | { delivered: true; payload: ProxyOutboundPayload }
@@ -46,6 +46,37 @@ export class ProxyOutboundClient {
     });
   }
 
+  async sendCoreOutbound(params: CoreOutboundPayload): Promise<ProxyOutboundResult> {
+    const target = parseCoreOutboundTarget(params.to);
+    const messageId = params.messageId?.trim() || `core-out-${randomUUID()}`;
+    const conversationType = params.conversationType ?? target.type;
+    const conversationId = params.conversationId?.trim() || target.conversationId;
+    const chatroomId = params.chatroomId?.trim() || conversationId;
+    const chatMsgId = params.chatMsgId?.trim() || `knox-out-${randomUUID()}`;
+    const status = params.status ?? "final";
+    const final = params.final ?? status !== "progress";
+    return await this.sendPayload({
+      messageId,
+      conversationType,
+      conversationId,
+      threadId: normalizeThreadId(params.threadId),
+      senderId: params.senderId?.trim() || "platformclaw",
+      senderDisplayName: params.senderDisplayName?.trim() || "PlatformClaw",
+      agentId: params.agentId?.trim() || "unknown",
+      sessionKey: params.sessionKey?.trim() || "",
+      runId: params.runId?.trim() || messageId,
+      requestId: params.requestId?.trim() || randomUUID(),
+      chatroomId,
+      chatMsgId,
+      msgType: "text",
+      status,
+      text: params.text,
+      final,
+      errorCode: params.errorCode,
+      errorMessage: params.errorMessage,
+    });
+  }
+
   private async send(params: {
     record: MessageRecord;
     runId: string;
@@ -75,10 +106,14 @@ export class ProxyOutboundClient {
       errorMessage: params.errorMessage,
     };
 
+    return await this.sendPayload(payload);
+  }
+
+  private async sendPayload(payload: ProxyOutboundPayload): Promise<ProxyOutboundResult> {
     if (!this.config.PROXY_OUTBOUND_URL) {
       this.logger.warn("proxy outbound url missing; skipping outbound delivery", {
-        messageId: params.record.messageId,
-        runId: params.runId,
+        messageId: payload.messageId,
+        runId: payload.runId,
       });
       return {
         delivered: false,
@@ -113,4 +148,25 @@ export class ProxyOutboundClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function normalizeThreadId(value: CoreOutboundPayload["threadId"]): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const text = String(value).trim();
+  return text || null;
+}
+
+function parseCoreOutboundTarget(raw: string): { conversationId: string; type: "dm" | "room" } {
+  const trimmed = raw.trim();
+  const dm = trimmed.match(/^(?:dm|direct|user):(.+)$/i);
+  if (dm?.[1]?.trim()) {
+    return { type: "dm", conversationId: dm[1].trim() };
+  }
+  const room = trimmed.match(/^(?:room|group|channel):(.+)$/i);
+  if (room?.[1]?.trim()) {
+    return { type: "room", conversationId: room[1].trim() };
+  }
+  return { type: "room", conversationId: trimmed };
 }
