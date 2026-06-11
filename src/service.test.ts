@@ -177,6 +177,11 @@ class FakeGateway {
 class FakeOutbound {
   progressCalls: Array<{ runId: string; text: string }> = [];
   finalCalls: Array<{ runId: string; text: string; status: string }> = [];
+  finalRoutingCalls: Array<{
+    record: MessageRecord;
+    errorCode?: string;
+    errorMessage?: string;
+  }> = [];
 
   async sendProgress(params: { runId: string; text: string }) {
     this.progressCalls.push({ runId: params.runId, text: params.text });
@@ -186,11 +191,23 @@ class FakeOutbound {
     };
   }
 
-  async sendFinal(params: { runId: string; text: string; status: string }) {
+  async sendFinal(params: {
+    record: MessageRecord;
+    runId: string;
+    text: string;
+    status: string;
+    errorCode?: string;
+    errorMessage?: string;
+  }) {
     this.finalCalls.push({
       runId: params.runId,
       text: params.text,
       status: params.status,
+    });
+    this.finalRoutingCalls.push({
+      record: { ...params.record },
+      errorCode: params.errorCode,
+      errorMessage: params.errorMessage,
     });
     return {
       delivered: true as const,
@@ -228,6 +245,212 @@ describe("KnoxAdapterService outbound sender metadata", () => {
     const record = store.getByMessageId(inbound.messageId);
     assert.equal(record?.senderId, "knox-user-1");
     assert.equal(record?.senderDisplayName, "Jung Hyeonho");
+  });
+});
+
+describe("KnoxAdapterService terminal failure messages", () => {
+  it("preserves a normal final response without sending a failure notice", async () => {
+    const config = createConfig({ ENABLE_STAGE_UPDATES: false });
+    const logger = {
+      info: mock.fn(),
+      warn: mock.fn(),
+      error: mock.fn(),
+    };
+    const store = new FakeStore();
+    const outbound = new FakeOutbound();
+    const gateway = new FakeGateway(
+      { runId: "run-final", transport: "websocket" },
+      {
+        runId: "run-final",
+        sessionKey: "agent:hyeonho_jung:knox:dm:hyeonho.jung",
+        status: "final",
+        text: "모델의 최종 답변",
+      },
+      [],
+    );
+    const service = new KnoxAdapterService(
+      config,
+      logger as never,
+      store as never,
+      gateway as never,
+      outbound as never,
+    );
+
+    const inbound = createInbound();
+    await service.acceptInbound(inbound);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(outbound.finalCalls, [
+      {
+        runId: "run-final",
+        text: "모델의 최종 답변",
+        status: "final",
+      },
+    ]);
+    assert.equal(logger.warn.mock.callCount(), 0);
+  });
+
+  it("preserves a successful fallback response without sending a failure notice", async () => {
+    const config = createConfig({ ENABLE_STAGE_UPDATES: false });
+    const logger = {
+      info: mock.fn(),
+      warn: mock.fn(),
+      error: mock.fn(),
+    };
+    const store = new FakeStore();
+    const outbound = new FakeOutbound();
+    const gateway = new FakeGateway(
+      { runId: "run-fallback", transport: "http-responses" },
+      {
+        runId: "run-fallback",
+        sessionKey: "agent:hyeonho_jung:knox:dm:hyeonho.jung",
+        status: "final",
+        text: "fallback 이후 생성된 최종 답변",
+      },
+      [],
+    );
+    const service = new KnoxAdapterService(
+      config,
+      logger as never,
+      store as never,
+      gateway as never,
+      outbound as never,
+    );
+
+    const inbound = createInbound();
+    await service.acceptInbound(inbound);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(outbound.finalCalls, [
+      {
+        runId: "run-fallback",
+        text: "fallback 이후 생성된 최종 답변",
+        status: "final",
+      },
+    ]);
+    assert.equal(logger.warn.mock.callCount(), 0);
+  });
+
+  it("sends a PlatformClaw-branded message while preserving the gateway error in the store", async () => {
+    const config = createConfig({ ENABLE_STAGE_UPDATES: false });
+    const logger = {
+      info: mock.fn(),
+      warn: mock.fn(),
+      error: mock.fn(),
+    };
+    const store = new FakeStore();
+    const outbound = new FakeOutbound();
+    const gateway = new FakeGateway(
+      { runId: "run-error", transport: "http-responses" },
+      {
+        runId: "run-error",
+        sessionKey: "agent:hyeonho_jung:knox:dm:hyeonho.jung",
+        status: "error",
+        errorCode: "gateway_error",
+        errorMessage: "fetch failed",
+      },
+      [],
+    );
+    const service = new KnoxAdapterService(
+      config,
+      logger as never,
+      store as never,
+      gateway as never,
+      outbound as never,
+    );
+
+    const inbound = createInbound();
+    await service.acceptInbound(inbound);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(outbound.finalCalls, [
+      {
+        runId: "run-error",
+        text:
+          "**PlatformClaw 안내**\n\nPlatformClaw가 일시적으로 요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+        status: "error",
+      },
+    ]);
+    assert.equal(store.getByMessageId(inbound.messageId)?.errorCode, "gateway_error");
+    assert.equal(store.getByMessageId(inbound.messageId)?.errorMessage, "fetch failed");
+    assert.equal(outbound.finalRoutingCalls[0]?.errorCode, "gateway_error");
+    assert.equal(outbound.finalRoutingCalls[0]?.errorMessage, "fetch failed");
+    assert.equal(outbound.finalRoutingCalls[0]?.record.conversationId, "conv-1");
+    assert.equal(outbound.finalRoutingCalls[0]?.record.chatroomId, "conv-1");
+    assert.equal(
+      outbound.finalRoutingCalls[0]?.record.sessionKey,
+      "agent:hyeonho-jung:knox:dm:knox-user-1",
+    );
+    assert.equal(outbound.finalRoutingCalls[0]?.record.agentId, "hyeonho-jung");
+    assert.deepEqual(logger.warn.mock.calls[0]?.arguments, [
+      "gateway terminal failure",
+      {
+        messageId: "msg-1",
+        runId: "run-error",
+        sessionKey: "agent:hyeonho-jung:knox:dm:knox-user-1",
+        status: "error",
+        errorCode: "gateway_error",
+        error: "fetch failed",
+      },
+    ]);
+  });
+
+  it("sends a distinct PlatformClaw timeout message", async () => {
+    const config = createConfig({ ENABLE_STAGE_UPDATES: false });
+    const logger = {
+      info: mock.fn(),
+      warn: mock.fn(),
+      error: mock.fn(),
+    };
+    const store = new FakeStore();
+    const outbound = new FakeOutbound();
+    const gateway = new FakeGateway(
+      { runId: "run-timeout", transport: "http-responses" },
+      {
+        runId: "run-timeout",
+        sessionKey: "agent:hyeonho_jung:knox:dm:hyeonho.jung",
+        status: "timeout",
+        errorCode: "gateway_timeout",
+        errorMessage: "gateway /v1/responses timeout",
+      },
+      [],
+    );
+    const service = new KnoxAdapterService(
+      config,
+      logger as never,
+      store as never,
+      gateway as never,
+      outbound as never,
+    );
+
+    const inbound = createInbound();
+    await service.acceptInbound(inbound);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(outbound.finalCalls, [
+      {
+        runId: "run-timeout",
+        text:
+          "**PlatformClaw 안내**\n\n응답 시간이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.",
+        status: "timeout",
+      },
+    ]);
+    assert.equal(store.getByMessageId(inbound.messageId)?.errorCode, "gateway_timeout");
+    assert.equal(
+      store.getByMessageId(inbound.messageId)?.errorMessage,
+      "gateway /v1/responses timeout",
+    );
+    assert.deepEqual(logger.warn.mock.calls[0]?.arguments, [
+      "gateway terminal failure",
+      {
+        messageId: "msg-1",
+        runId: "run-timeout",
+        sessionKey: "agent:hyeonho-jung:knox:dm:knox-user-1",
+        status: "timeout",
+        errorCode: "gateway_timeout",
+        error: "gateway /v1/responses timeout",
+      },
+    ]);
   });
 });
 

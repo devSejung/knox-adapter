@@ -55,6 +55,27 @@ function buildQueuedText(queueDepthAhead: number) {
   return `앞선 요청 ${queueDepthAhead}건 처리 후 이어서 진행합니다.`;
 }
 
+function buildTerminalUserText(params: {
+  status: "final" | "error" | "timeout";
+  text: string;
+}) {
+  if (params.status === "final") {
+    return params.text;
+  }
+  if (params.status === "timeout") {
+    return [
+      "**PlatformClaw 안내**",
+      "",
+      "응답 시간이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.",
+    ].join("\n");
+  }
+  return [
+    "**PlatformClaw 안내**",
+    "",
+    "PlatformClaw가 일시적으로 요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+  ].join("\n");
+}
+
 export class KnoxAdapterService {
   private readonly sessionQueues = new Map<
     string,
@@ -355,11 +376,22 @@ export class KnoxAdapterService {
       };
     }
 
+    if (terminalResult.status !== "final") {
+      this.logger.warn("gateway terminal failure", {
+        messageId: message.messageId,
+        runId: terminalResult.runId,
+        sessionKey: routing.sessionKey,
+        status: terminalResult.status,
+        errorCode: terminalResult.errorCode,
+        error: terminalResult.errorMessage,
+      });
+    }
+
     try {
       await this.deliverTerminal({
         messageId: message.messageId,
         runId: terminalResult.runId,
-        text: terminalResult.text,
+        text: buildTerminalUserText(terminalResult),
         status: terminalResult.status,
         errorCode: terminalResult.errorCode,
         errorMessage: terminalResult.errorMessage,
