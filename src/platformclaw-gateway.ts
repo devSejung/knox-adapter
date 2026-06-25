@@ -74,7 +74,8 @@ function extractText(message: unknown): string {
     .join("\n");
 }
 
-const SKILL_HUB_COMMAND_RE = /^\s*\/skillhub\s+(install|update|delete)\s+([a-z0-9][a-z0-9-]{1,80})\s*$/i;
+const SKILL_HUB_COMMAND_RE =
+  /^\s*\/skillhub\s+(?:help(?:\s+(?:ko|en))?|installed|list(?:\s+(?:all|knowledge|automation|utility|other))?|(?:install|update|delete)\s+[a-z0-9][a-z0-9-]{1,80})\s*$/i;
 
 function extractStrictSkillHubCommandFromLastLine(text: string): string | undefined {
   const lines = text
@@ -364,8 +365,8 @@ export class PlatformClawGatewayClient {
   private shouldPreferHttpResponses() {
     return Boolean(
       (this.config.PLATFORMCLAW_GATEWAY_PASSWORD || this.config.PLATFORMCLAW_GATEWAY_TOKEN) &&
-        !this.config.PLATFORMCLAW_GATEWAY_DEVICE_TOKEN &&
-        this.config.PLATFORMCLAW_USE_DEVICE_IDENTITY !== true,
+      !this.config.PLATFORMCLAW_GATEWAY_DEVICE_TOKEN &&
+      this.config.PLATFORMCLAW_USE_DEVICE_IDENTITY !== true,
     );
   }
 
@@ -402,7 +403,9 @@ export class PlatformClawGatewayClient {
       .flatMap((item) => {
         const content = Array.isArray(item.content) ? item.content : [];
         return content.map((block) =>
-          block && typeof block === "object" && typeof (block as { text?: unknown }).text === "string"
+          block &&
+          typeof block === "object" &&
+          typeof (block as { text?: unknown }).text === "string"
             ? ((block as { text: string }).text as string)
             : "",
         );
@@ -421,7 +424,10 @@ export class PlatformClawGatewayClient {
 
     const gatewayOrigin = normalizeWsOrigin(this.config.PLATFORMCLAW_GATEWAY_URL);
     const headers = gatewayOrigin ? { origin: gatewayOrigin } : undefined;
-    const ws = new WebSocket(this.config.PLATFORMCLAW_GATEWAY_URL, headers ? { headers } : undefined);
+    const ws = new WebSocket(
+      this.config.PLATFORMCLAW_GATEWAY_URL,
+      headers ? { headers } : undefined,
+    );
     this.ws = ws;
 
     ws.on("message", (data) => {
@@ -442,7 +448,10 @@ export class PlatformClawGatewayClient {
     });
 
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("gateway websocket open timeout")), this.config.PLATFORMCLAW_CONNECT_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => reject(new Error("gateway websocket open timeout")),
+        this.config.PLATFORMCLAW_CONNECT_TIMEOUT_MS,
+      );
       ws.once("open", () => {
         clearTimeout(timer);
         resolve();
@@ -455,7 +464,11 @@ export class PlatformClawGatewayClient {
 
     const nonce = await this.waitForConnectChallenge();
     const connectPayload = await this.buildConnectParams(PROTOCOL_VERSION, nonce);
-    const response = await this.request("connect", connectPayload, this.config.PLATFORMCLAW_REQUEST_TIMEOUT_MS);
+    const response = await this.request(
+      "connect",
+      connectPayload,
+      this.config.PLATFORMCLAW_REQUEST_TIMEOUT_MS,
+    );
     const payload = response as { type?: unknown };
     if (payload?.type !== "hello-ok") {
       throw new Error("gateway connect returned unexpected payload");
@@ -482,14 +495,13 @@ export class PlatformClawGatewayClient {
           }
         : undefined;
 
-    const device =
-      this.config.PLATFORMCLAW_USE_DEVICE_IDENTITY
-        ? await this.buildDevicePayload({
-            nonce,
-            role,
-            scopes,
-          })
-        : undefined;
+    const device = this.config.PLATFORMCLAW_USE_DEVICE_IDENTITY
+      ? await this.buildDevicePayload({
+          nonce,
+          role,
+          scopes,
+        })
+      : undefined;
 
     return {
       minProtocol: protocolVersion,
@@ -510,11 +522,7 @@ export class PlatformClawGatewayClient {
     };
   }
 
-  private async buildDevicePayload(params: {
-    nonce: string;
-    role: string;
-    scopes: string[];
-  }) {
+  private async buildDevicePayload(params: { nonce: string; role: string; scopes: string[] }) {
     const identity = loadOrCreateDeviceIdentity(this.config.PLATFORMCLAW_DEVICE_IDENTITY_PATH);
     const signedAtMs = Date.now();
     const tokenForSignature =
@@ -716,7 +724,8 @@ export class PlatformClawGatewayClient {
       return;
     }
     const dataRecord = data as Record<string, unknown>;
-    const phase = dataRecord.phase === "start" || dataRecord.phase === "end" ? dataRecord.phase : null;
+    const phase =
+      dataRecord.phase === "start" || dataRecord.phase === "end" ? dataRecord.phase : null;
     if (!phase) {
       return;
     }

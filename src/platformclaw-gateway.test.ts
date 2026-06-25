@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
 import type { AdapterConfig } from "./config.js";
+import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
 import type { KnoxInboundPayload } from "./types.js";
 
 function createConfig(overrides?: Partial<AdapterConfig>): AdapterConfig {
@@ -211,5 +211,229 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
     const payload = requestedPayload as { message?: string; commandBody?: string } | null;
     assert.equal(payload?.message, "/skillhub install jedec-lpddr-dram-reference");
     assert.equal(payload?.commandBody, "/skillhub install jedec-lpddr-dram-reference");
+  });
+
+  it("forces websocket chat.send for strict skillhub list commands extracted from wrapped room text", async () => {
+    const client = new PlatformClawGatewayClient(
+      createConfig({
+        ENABLE_STAGE_UPDATES: false,
+        PLATFORMCLAW_TRANSPORT: "http-responses",
+      }),
+      {
+        info: mock.fn(),
+        warn: mock.fn(),
+        error: mock.fn(),
+      } as never,
+    ) as any;
+
+    let requestedMethod = "";
+    let requestedPayload: Record<string, unknown> | null = null;
+    client.ensureConnected = async () => {};
+    client.request = async (method: string, payload: Record<string, unknown>) => {
+      requestedMethod = method;
+      requestedPayload = payload;
+      return { runId: "run-2" };
+    };
+
+    const inbound: KnoxInboundPayload = {
+      eventId: "evt-3",
+      messageId: "knox-msg-3",
+      occurredAt: "2026-06-01T00:00:00.000Z",
+      sender: {
+        knoxUserId: "eon",
+        employeeId: "eon",
+        employeeEmail: "eon@samsung.com",
+        displayName: "Eon",
+      },
+      conversation: {
+        type: "room",
+        conversationId: "room_platform",
+        threadId: null,
+      },
+      text: "[그룹방에서 온 메세지입니다]\n사용자정보: eon / Samsung\n/skillhub list knowledge",
+    };
+
+    const accepted = await client.sendChat({
+      routing: {
+        employeeId: "eon",
+        agentId: "knox_group",
+        sessionKey: "agent:knox_group:knox:room:room_platform",
+      },
+      inbound,
+    });
+
+    assert.equal(accepted.transport, "websocket");
+    assert.equal(requestedMethod, "chat.send");
+    const payload = requestedPayload as { message?: string; commandBody?: string } | null;
+    assert.equal(payload?.message, "/skillhub list knowledge");
+    assert.equal(payload?.commandBody, "/skillhub list knowledge");
+  });
+
+  it("accepts explicit /skillhub list all from wrapped room text", async () => {
+    const client = new PlatformClawGatewayClient(
+      createConfig({
+        ENABLE_STAGE_UPDATES: false,
+        PLATFORMCLAW_TRANSPORT: "http-responses",
+      }),
+      {
+        info: mock.fn(),
+        warn: mock.fn(),
+        error: mock.fn(),
+      } as never,
+    ) as any;
+
+    let requestedMethod = "";
+    let requestedPayload: Record<string, unknown> | null = null;
+    client.ensureConnected = async () => {};
+    client.request = async (method: string, payload: Record<string, unknown>) => {
+      requestedMethod = method;
+      requestedPayload = payload;
+      return { runId: "run-3" };
+    };
+
+    const inbound: KnoxInboundPayload = {
+      eventId: "evt-4",
+      messageId: "knox-msg-4",
+      occurredAt: "2026-06-01T00:00:00.000Z",
+      sender: {
+        knoxUserId: "eon",
+        employeeId: "eon",
+        employeeEmail: "eon@samsung.com",
+        displayName: "Eon",
+      },
+      conversation: {
+        type: "room",
+        conversationId: "room_platform",
+        threadId: null,
+      },
+      text: "[그룹방에서 온 메세지입니다]\n사용자정보: eon / Samsung\n/skillhub list all",
+    };
+
+    const accepted = await client.sendChat({
+      routing: {
+        employeeId: "eon",
+        agentId: "knox_group",
+        sessionKey: "agent:knox_group:knox:room:room_platform",
+      },
+      inbound,
+    });
+
+    assert.equal(accepted.transport, "websocket");
+    assert.equal(requestedMethod, "chat.send");
+    const payload = requestedPayload as { message?: string; commandBody?: string } | null;
+    assert.equal(payload?.message, "/skillhub list all");
+    assert.equal(payload?.commandBody, "/skillhub list all");
+  });
+
+  it("accepts /skillhub help ko from wrapped room text", async () => {
+    const client = new PlatformClawGatewayClient(
+      createConfig({
+        ENABLE_STAGE_UPDATES: false,
+        PLATFORMCLAW_TRANSPORT: "http-responses",
+      }),
+      {
+        info: mock.fn(),
+        warn: mock.fn(),
+        error: mock.fn(),
+      } as never,
+    ) as any;
+
+    let requestedMethod = "";
+    let requestedPayload: Record<string, unknown> | null = null;
+    client.ensureConnected = async () => {};
+    client.request = async (method: string, payload: Record<string, unknown>) => {
+      requestedMethod = method;
+      requestedPayload = payload;
+      return { runId: "run-4" };
+    };
+
+    const inbound: KnoxInboundPayload = {
+      eventId: "evt-5",
+      messageId: "knox-msg-5",
+      occurredAt: "2026-06-01T00:00:00.000Z",
+      sender: {
+        knoxUserId: "eon",
+        employeeId: "eon",
+        employeeEmail: "eon@samsung.com",
+        displayName: "Eon",
+      },
+      conversation: {
+        type: "room",
+        conversationId: "room_platform",
+        threadId: null,
+      },
+      text: "[그룹방에서 온 메세지입니다]\n사용자정보: eon / Samsung\n/skillhub help ko",
+    };
+
+    const accepted = await client.sendChat({
+      routing: {
+        employeeId: "eon",
+        agentId: "knox_group",
+        sessionKey: "agent:knox_group:knox:room:room_platform",
+      },
+      inbound,
+    });
+
+    assert.equal(accepted.transport, "websocket");
+    assert.equal(requestedMethod, "chat.send");
+    const payload = requestedPayload as { message?: string; commandBody?: string } | null;
+    assert.equal(payload?.message, "/skillhub help ko");
+    assert.equal(payload?.commandBody, "/skillhub help ko");
+  });
+
+  it("accepts /skillhub installed from wrapped room text", async () => {
+    const client = new PlatformClawGatewayClient(
+      createConfig({
+        ENABLE_STAGE_UPDATES: false,
+        PLATFORMCLAW_TRANSPORT: "http-responses",
+      }),
+      {
+        info: mock.fn(),
+        warn: mock.fn(),
+        error: mock.fn(),
+      } as never,
+    ) as any;
+
+    let requestedMethod = "";
+    let requestedPayload: Record<string, unknown> | null = null;
+    client.ensureConnected = async () => {};
+    client.request = async (method: string, payload: Record<string, unknown>) => {
+      requestedMethod = method;
+      requestedPayload = payload;
+      return { runId: "run-5" };
+    };
+
+    const inbound: KnoxInboundPayload = {
+      eventId: "evt-6",
+      messageId: "knox-msg-6",
+      occurredAt: "2026-06-01T00:00:00.000Z",
+      sender: {
+        knoxUserId: "eon",
+        employeeId: "eon",
+        employeeEmail: "eon@samsung.com",
+        displayName: "Eon",
+      },
+      conversation: {
+        type: "room",
+        conversationId: "room_platform",
+        threadId: null,
+      },
+      text: "[그룹방에서 온 메세지입니다]\n사용자정보: eon / Samsung\n/skillhub installed",
+    };
+
+    const accepted = await client.sendChat({
+      routing: {
+        employeeId: "eon",
+        agentId: "knox_group",
+        sessionKey: "agent:knox_group:knox:room:room_platform",
+      },
+      inbound,
+    });
+
+    assert.equal(accepted.transport, "websocket");
+    assert.equal(requestedMethod, "chat.send");
+    const payload = requestedPayload as { message?: string; commandBody?: string } | null;
+    assert.equal(payload?.message, "/skillhub installed");
+    assert.equal(payload?.commandBody, "/skillhub installed");
   });
 });
