@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AdapterConfig } from "./config.js";
-import { resolveRouting, RoutingError } from "./routing.js";
+import { resolveInboundSenderId, resolveRouting, RoutingError } from "./routing.js";
 import type { KnoxInboundPayload } from "./types.js";
 
 function createConfig(overrides?: Partial<AdapterConfig>): AdapterConfig {
@@ -69,14 +69,14 @@ describe("resolveRouting explicit sessionKey policy", () => {
       createConfig(),
       createInbound({
         agentId: "knox_group",
-        sessionKey: "agent:knox.group:knox:room:room_123",
+        sessionKey: "agent:knox_group:knox:room:room_123",
       }),
     );
 
     assert.deepEqual(routing, {
       employeeId: "seungon.jung",
-      agentId: "knox.group",
-      sessionKey: "agent:knox.group:knox:room:room_123",
+      agentId: "knox_group",
+      sessionKey: "agent:knox_group:knox:room:room_123",
     });
   });
 
@@ -85,8 +85,8 @@ describe("resolveRouting explicit sessionKey policy", () => {
 
     assert.deepEqual(routing, {
       employeeId: "seungon.jung",
-      agentId: "knox.group",
-      sessionKey: "agent:knox.group:knox:dm:seungon.jung",
+      agentId: "knox_group",
+      sessionKey: "agent:knox_group:knox:dm:seungon.jung",
     });
   });
 
@@ -95,8 +95,8 @@ describe("resolveRouting explicit sessionKey policy", () => {
 
     assert.deepEqual(routing, {
       employeeId: "seungon.jung",
-      agentId: "seungon.jung",
-      sessionKey: "agent:seungon.jung:knox:dm:seungon.jung",
+      agentId: "seungon-jung",
+      sessionKey: "agent:seungon-jung:knox:dm:seungon.jung",
     });
   });
 
@@ -105,7 +105,7 @@ describe("resolveRouting explicit sessionKey policy", () => {
       () =>
         resolveRouting(
           createConfig(),
-          createInbound({ sessionKey: "agent:knox.group:knox:room:room_123" }),
+          createInbound({ sessionKey: "agent:knox_group:knox:room:room_123" }),
         ),
       (error) =>
         error instanceof RoutingError &&
@@ -121,13 +121,13 @@ describe("resolveRouting explicit sessionKey policy", () => {
           createConfig(),
           createInbound({
             agentId: "seungon_jung",
-            sessionKey: "agent:knox.group:knox:room:room_123",
+            sessionKey: "agent:knox_group:knox:room:room_123",
           }),
         ),
       (error) =>
         error instanceof RoutingError &&
         error.code === "agent_session_mismatch" &&
-        error.message === "sessionKey must start with agent:seungon.jung:.",
+        error.message === "sessionKey must start with agent:seungon_jung:.",
     );
   });
 
@@ -138,7 +138,7 @@ describe("resolveRouting explicit sessionKey policy", () => {
           createConfig(),
           createInbound({
             agentId: "knox_group",
-            sessionKey: "agent:knox.group:",
+            sessionKey: "agent:knox_group:",
           }),
         ),
       (error) =>
@@ -148,24 +148,29 @@ describe("resolveRouting explicit sessionKey policy", () => {
     );
   });
 
-  it("normalizes every sender identity fallback to dot notation", () => {
+  it("normalizes sender identity only, without changing agent routing", () => {
     const fromEmployeeId = resolveRouting(
       createConfig(),
-      createInbound({ sender: { knoxUserId: "raw_user", employeeId: "hyeonho_jung" } }),
+      createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeId: "hyeonho_jung" } }),
     );
     const fromEmail = resolveRouting(
       createConfig(),
-      createInbound({ sender: { knoxUserId: "raw_user", employeeEmail: "hyeonho_jung@example.com" } }),
+      createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeEmail: "hyeonho_jung@example.com" } }),
     );
     const fromKnoxId = resolveRouting(
       createConfig(),
       createInbound({ sender: { knoxUserId: "hyeonho_jung" } }),
     );
 
-    for (const routing of [fromEmployeeId, fromEmail, fromKnoxId]) {
+    for (const [message, routing] of [
+      [createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeId: "hyeonho_jung" } }), fromEmployeeId],
+      [createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeEmail: "hyeonho_jung@example.com" } }), fromEmail],
+      [createInbound({ sender: { knoxUserId: "hyeonho_jung" } }), fromKnoxId],
+    ] as const) {
+      assert.equal(resolveInboundSenderId(message), "hyeonho.jung");
       assert.equal(routing.employeeId, "hyeonho.jung");
-      assert.equal(routing.agentId, "hyeonho.jung");
-      assert.equal(routing.sessionKey, "agent:hyeonho.jung:knox:dm:hyeonho.jung");
+      assert.equal(routing.agentId, "hyeonho_jung");
+      assert.equal(routing.sessionKey, "agent:hyeonho_jung:knox:dm:hyeonho_jung");
     }
   });
 });

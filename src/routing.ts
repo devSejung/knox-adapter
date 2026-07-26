@@ -1,8 +1,8 @@
 import type { AdapterConfig } from "./config.js";
 import type { KnoxInboundPayload, PlatformClawRouting, SessionMode } from "./types.js";
 
-const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
-const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9._-]+/gi;
+const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9_-]+/gi;
 const LEADING_DASH_RE = /^-+/;
 const TRAILING_DASH_RE = /-+$/;
 
@@ -30,7 +30,7 @@ function normalizeAgentId(value?: string | null): string {
   if (!trimmed) {
     return "main";
   }
-  const lowered = normalizeIdentity(trimmed).toLowerCase();
+  const lowered = trimmed.toLowerCase();
   if (VALID_AGENT_ID_RE.test(trimmed)) {
     return lowered;
   }
@@ -63,7 +63,7 @@ function deriveAgentId(message: KnoxInboundPayload): string {
   return normalizeAgentId(
     normalizeNonEmpty(message.agentId) ??
       normalizeNonEmpty(message.sender.employeeEmail)?.split("@")[0] ??
-      deriveEmployeeId(message),
+      message.sender.knoxUserId.trim(),
   );
 }
 
@@ -111,7 +111,7 @@ export function resolveRouting(
   const sessionKey =
     sessionMode === "shared_main"
       ? `agent:${agentId}:main`
-      : `agent:${agentId}:knox:dm:${resolveInboundSenderId(message)}`;
+      : `agent:${agentId}:knox:dm:${message.sender.knoxUserId.trim()}`;
 
   return { employeeId, agentId, sessionKey };
 }
