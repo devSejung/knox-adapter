@@ -148,6 +148,7 @@ export class PlatformClawGatewayClient {
         originatingChannel: "knox",
         originatingTo: buildKnoxOriginTarget(params.inbound),
         originatingThreadId: params.inbound.conversation.threadId ?? undefined,
+        senderId: params.inbound.sender.knoxUserId.trim(),
         idempotencyKey,
         timeoutMs: this.config.PLATFORMCLAW_RUN_TIMEOUT_MS,
       })) as { runId?: unknown };
@@ -290,6 +291,7 @@ export class PlatformClawGatewayClient {
           "x-openclaw-message-channel": "knox",
           "x-openclaw-originating-channel": "knox",
           "x-openclaw-originating-to": buildKnoxOriginTarget(params.inbound),
+          "x-openclaw-sender-id": params.inbound.sender.knoxUserId.trim(),
           ...(params.inbound.conversation.threadId
             ? { "x-openclaw-originating-thread-id": params.inbound.conversation.threadId }
             : {}),

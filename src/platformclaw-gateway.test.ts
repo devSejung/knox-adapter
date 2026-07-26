@@ -96,6 +96,7 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
   it("uses the Knox conversation id as the DM delivery target so chatroomId can be restored", async () => {
     let capturedOriginatingChannel = "";
     let capturedOriginatingTo = "";
+    let capturedSenderId = "";
     const fetchMock = mock.method(
       globalThis,
       "fetch",
@@ -103,6 +104,7 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
         const headers = new Headers(init?.headers);
         capturedOriginatingChannel = headers.get("x-openclaw-originating-channel") ?? "";
         capturedOriginatingTo = headers.get("x-openclaw-originating-to") ?? "";
+        capturedSenderId = headers.get("x-openclaw-sender-id") ?? "";
         return new Response(
           JSON.stringify({
             output: [{ type: "message", content: [{ text: "ok" }] }],
@@ -152,6 +154,7 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
 
       assert.equal(capturedOriginatingChannel, "knox");
       assert.equal(capturedOriginatingTo, "dm:dm-chatroom-123");
+      assert.equal(capturedSenderId, "seungon.jung");
     } finally {
       fetchMock.mock.restore();
     }
@@ -208,9 +211,14 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
 
     assert.equal(accepted.transport, "websocket");
     assert.equal(requestedMethod, "chat.send");
-    const payload = requestedPayload as { message?: string; commandBody?: string } | null;
+    const payload = requestedPayload as {
+      message?: string;
+      commandBody?: string;
+      senderId?: string;
+    } | null;
     assert.equal(payload?.message, "/skillhub install jedec-lpddr-dram-reference");
     assert.equal(payload?.commandBody, "/skillhub install jedec-lpddr-dram-reference");
+    assert.equal(payload?.senderId, "eon");
   });
 
   it("forces websocket chat.send for strict skillhub list commands extracted from wrapped room text", async () => {
