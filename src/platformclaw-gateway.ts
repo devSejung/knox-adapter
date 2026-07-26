@@ -8,6 +8,7 @@ import {
 } from "./device-identity.js";
 import { buildDeviceAuthPayloadV3 } from "./gateway-device-auth.js";
 import { Logger } from "./logger.js";
+import { resolveInboundSenderId } from "./routing.js";
 import type {
   GatewayChatAccepted,
   GatewayCompactionEvent,
@@ -148,7 +149,7 @@ export class PlatformClawGatewayClient {
         originatingChannel: "knox",
         originatingTo: buildKnoxOriginTarget(params.inbound),
         originatingThreadId: params.inbound.conversation.threadId ?? undefined,
-        senderId: params.inbound.sender.knoxUserId.trim(),
+        senderId: resolveInboundSenderId(params.inbound),
         idempotencyKey,
         timeoutMs: this.config.PLATFORMCLAW_RUN_TIMEOUT_MS,
       })) as { runId?: unknown };
@@ -291,7 +292,7 @@ export class PlatformClawGatewayClient {
           "x-openclaw-message-channel": "knox",
           "x-openclaw-originating-channel": "knox",
           "x-openclaw-originating-to": buildKnoxOriginTarget(params.inbound),
-          "x-openclaw-sender-id": params.inbound.sender.knoxUserId.trim(),
+          "x-openclaw-sender-id": resolveInboundSenderId(params.inbound),
           ...(params.inbound.conversation.threadId
             ? { "x-openclaw-originating-thread-id": params.inbound.conversation.threadId }
             : {}),
@@ -300,10 +301,7 @@ export class PlatformClawGatewayClient {
           stream: false,
           model: `openclaw/${params.routing.agentId}`,
           input: params.gatewayMessage,
-          user:
-            params.inbound.sender.employeeEmail ||
-            params.inbound.sender.employeeId ||
-            params.inbound.sender.knoxUserId,
+          user: resolveInboundSenderId(params.inbound),
         }),
         signal: controller.signal,
       });

@@ -4,7 +4,7 @@ import { isEmployeeActivated } from "./activation.js";
 import { Logger } from "./logger.js";
 import { ProxyOutboundClient } from "./outbound-client.js";
 import { PlatformClawGatewayClient } from "./platformclaw-gateway.js";
-import { resolveRouting } from "./routing.js";
+import { resolveInboundSenderId, resolveRouting } from "./routing.js";
 import { AdapterStore } from "./store.js";
 import type { GatewayCompactionEvent, KnoxInboundPayload, MessageRecord } from "./types.js";
 
@@ -137,7 +137,7 @@ export class KnoxAdapterService {
       conversationId: message.conversation.conversationId,
       threadId: message.conversation.threadId ?? null,
       conversationType: message.conversation.type,
-      senderId: message.sender.knoxUserId,
+      senderId: resolveInboundSenderId(message),
       senderDisplayName: message.sender.displayName ?? null,
     });
 

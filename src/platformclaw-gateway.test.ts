@@ -187,9 +187,7 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
       messageId: "knox-msg-2",
       occurredAt: "2026-06-01T00:00:00.000Z",
       sender: {
-        knoxUserId: "eon",
-        employeeId: "eon",
-        employeeEmail: "eon@samsung.com",
+        knoxUserId: "hyeonho_jung",
         displayName: "Eon",
       },
       conversation: {
@@ -218,7 +216,7 @@ describe("PlatformClawGatewayClient Knox origin routing", () => {
     } | null;
     assert.equal(payload?.message, "/skillhub install jedec-lpddr-dram-reference");
     assert.equal(payload?.commandBody, "/skillhub install jedec-lpddr-dram-reference");
-    assert.equal(payload?.senderId, "eon");
+    assert.equal(payload?.senderId, "hyeonho.jung");
   });
 
   it("forces websocket chat.send for strict skillhub list commands extracted from wrapped room text", async () => {

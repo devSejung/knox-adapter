@@ -1,8 +1,8 @@
 import type { AdapterConfig } from "./config.js";
 import type { KnoxInboundPayload, PlatformClawRouting, SessionMode } from "./types.js";
 
-const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9_-]+/gi;
+const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9._-]+/gi;
 const LEADING_DASH_RE = /^-+/;
 const TRAILING_DASH_RE = /-+$/;
 
@@ -21,12 +21,16 @@ function normalizeNonEmpty(value?: string | null): string | null {
   return normalized ? normalized : null;
 }
 
+function normalizeIdentity(value: string): string {
+  return value.trim().replaceAll("_", ".");
+}
+
 function normalizeAgentId(value?: string | null): string {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return "main";
   }
-  const lowered = trimmed.toLowerCase();
+  const lowered = normalizeIdentity(trimmed).toLowerCase();
   if (VALID_AGENT_ID_RE.test(trimmed)) {
     return lowered;
   }
@@ -39,12 +43,20 @@ function normalizeAgentId(value?: string | null): string {
   );
 }
 
+export function resolveInboundSenderId(message: KnoxInboundPayload): string {
+  const employeeId = normalizeNonEmpty(message.sender.employeeId);
+  if (employeeId) {
+    return normalizeIdentity(employeeId);
+  }
+  const employeeEmail = normalizeNonEmpty(message.sender.employeeEmail);
+  if (employeeEmail) {
+    return normalizeIdentity(employeeEmail.split("@")[0]);
+  }
+  return normalizeIdentity(message.sender.knoxUserId);
+}
+
 function deriveEmployeeId(message: KnoxInboundPayload): string {
-  return (
-    normalizeNonEmpty(message.sender.employeeId) ??
-    normalizeNonEmpty(message.sender.employeeEmail)?.split("@")[0] ??
-    message.sender.knoxUserId.trim()
-  );
+  return resolveInboundSenderId(message);
 }
 
 function deriveAgentId(message: KnoxInboundPayload): string {
@@ -99,7 +111,7 @@ export function resolveRouting(
   const sessionKey =
     sessionMode === "shared_main"
       ? `agent:${agentId}:main`
-      : `agent:${agentId}:knox:dm:${message.sender.knoxUserId.trim()}`;
+      : `agent:${agentId}:knox:dm:${resolveInboundSenderId(message)}`;
 
   return { employeeId, agentId, sessionKey };
 }
