@@ -21,8 +21,8 @@ function normalizeNonEmpty(value?: string | null): string | null {
   return normalized ? normalized : null;
 }
 
-function normalizeIdentity(value: string): string {
-  return value.trim().replaceAll("_", ".");
+function normalizeKnoxSenderId(value: string): string {
+  return value.trim().replace(/_([^_]*)$/, ".$1");
 }
 
 function normalizeAgentId(value?: string | null): string {
@@ -46,13 +46,13 @@ function normalizeAgentId(value?: string | null): string {
 export function resolveInboundSenderId(message: KnoxInboundPayload): string {
   const employeeId = normalizeNonEmpty(message.sender.employeeId);
   if (employeeId) {
-    return normalizeIdentity(employeeId);
+    return employeeId;
   }
   const employeeEmail = normalizeNonEmpty(message.sender.employeeEmail);
   if (employeeEmail) {
-    return normalizeIdentity(employeeEmail.split("@")[0]);
+    return employeeEmail.split("@")[0];
   }
-  return normalizeIdentity(message.sender.knoxUserId);
+  return normalizeKnoxSenderId(message.sender.knoxUserId);
 }
 
 function deriveEmployeeId(message: KnoxInboundPayload): string {

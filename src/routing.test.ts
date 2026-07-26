@@ -148,7 +148,7 @@ describe("resolveRouting explicit sessionKey policy", () => {
     );
   });
 
-  it("normalizes sender identity only, without changing agent routing", () => {
+  it("normalizes only the final underscore of a Knox sender ID", () => {
     const fromEmployeeId = resolveRouting(
       createConfig(),
       createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeId: "hyeonho_jung" } }),
@@ -162,13 +162,14 @@ describe("resolveRouting explicit sessionKey policy", () => {
       createInbound({ sender: { knoxUserId: "hyeonho_jung" } }),
     );
 
-    for (const [message, routing] of [
-      [createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeId: "hyeonho_jung" } }), fromEmployeeId],
-      [createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeEmail: "hyeonho_jung@example.com" } }), fromEmail],
-      [createInbound({ sender: { knoxUserId: "hyeonho_jung" } }), fromKnoxId],
-    ] as const) {
-      assert.equal(resolveInboundSenderId(message), "hyeonho.jung");
-      assert.equal(routing.employeeId, "hyeonho.jung");
+    const fromTwoUnderscores = createInbound({ sender: { knoxUserId: "sg_anna_kim" } });
+
+    assert.equal(resolveInboundSenderId(createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeId: "hyeonho_jung" } })), "hyeonho_jung");
+    assert.equal(resolveInboundSenderId(createInbound({ sender: { knoxUserId: "hyeonho_jung", employeeEmail: "hyeonho_jung@example.com" } })), "hyeonho_jung");
+    assert.equal(resolveInboundSenderId(createInbound({ sender: { knoxUserId: "hyeonho_jung" } })), "hyeonho.jung");
+    assert.equal(resolveInboundSenderId(fromTwoUnderscores), "sg_anna.kim");
+
+    for (const routing of [fromEmployeeId, fromEmail, fromKnoxId]) {
       assert.equal(routing.agentId, "hyeonho_jung");
       assert.equal(routing.sessionKey, "agent:hyeonho_jung:knox:dm:hyeonho_jung");
     }
