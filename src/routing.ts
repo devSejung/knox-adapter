@@ -30,8 +30,8 @@ function normalizeAgentId(value?: string | null): string {
   if (!trimmed) {
     return "main";
   }
-  const lowered = trimmed.toLowerCase();
-  if (VALID_AGENT_ID_RE.test(trimmed)) {
+  const lowered = trimmed.toLowerCase().replaceAll(".", "_");
+  if (VALID_AGENT_ID_RE.test(lowered)) {
     return lowered;
   }
   return (

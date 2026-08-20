@@ -379,15 +379,15 @@ describe("KnoxAdapterService terminal failure messages", () => {
     assert.equal(outbound.finalRoutingCalls[0]?.record.chatroomId, "conv-1");
     assert.equal(
       outbound.finalRoutingCalls[0]?.record.sessionKey,
-      "agent:hyeonho-jung:knox:dm:knox-user-1",
+      "agent:hyeonho_jung:knox:dm:knox-user-1",
     );
-    assert.equal(outbound.finalRoutingCalls[0]?.record.agentId, "hyeonho-jung");
+    assert.equal(outbound.finalRoutingCalls[0]?.record.agentId, "hyeonho_jung");
     assert.deepEqual(logger.warn.mock.calls[0]?.arguments, [
       "gateway terminal failure",
       {
         messageId: "msg-1",
         runId: "run-error",
-        sessionKey: "agent:hyeonho-jung:knox:dm:knox-user-1",
+        sessionKey: "agent:hyeonho_jung:knox:dm:knox-user-1",
         status: "error",
         errorCode: "gateway_error",
         error: "fetch failed",
@@ -445,7 +445,7 @@ describe("KnoxAdapterService terminal failure messages", () => {
       {
         messageId: "msg-1",
         runId: "run-timeout",
-        sessionKey: "agent:hyeonho-jung:knox:dm:knox-user-1",
+        sessionKey: "agent:hyeonho_jung:knox:dm:knox-user-1",
         status: "timeout",
         errorCode: "gateway_timeout",
         error: "gateway /v1/responses timeout",

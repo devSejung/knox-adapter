@@ -90,13 +90,26 @@ describe("resolveRouting explicit sessionKey policy", () => {
     });
   });
 
-  it("falls back to the legacy knoxUserId-derived agent and DM session when neither is provided", () => {
+  it("normalizes dotted Knox IDs to underscore agent IDs", () => {
     const routing = resolveRouting(createConfig(), createInbound());
 
     assert.deepEqual(routing, {
       employeeId: "seungon.jung",
-      agentId: "seungon-jung",
-      sessionKey: "agent:seungon-jung:knox:dm:seungon.jung",
+      agentId: "seungon_jung",
+      sessionKey: "agent:seungon_jung:knox:dm:seungon.jung",
+    });
+  });
+
+  it("uses the underscore agent ID in shared main session keys", () => {
+    const routing = resolveRouting(
+      createConfig({ DEFAULT_SESSION_MODE: "shared_main" }),
+      createInbound(),
+    );
+
+    assert.deepEqual(routing, {
+      employeeId: "seungon.jung",
+      agentId: "seungon_jung",
+      sessionKey: "agent:seungon_jung:main",
     });
   });
 
